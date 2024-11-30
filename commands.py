@@ -123,7 +123,7 @@ class VirtualenvCommand(sublime_plugin.WindowCommand):
         selected_venv = self.venvs[venv_index]
         venv_path = os.path.join(selected_venv['dir'], selected_venv['env'])
         if not os.path.exists(venv_path):
-            sublime.error_message("Virtualenv '{}' does not exist.".format(venv_path))
+            sublime.error_message(f"Virtualenv '{venv_path}' does not exist.")
             return
 
         # Set $VIRTUAL_ENV
@@ -138,7 +138,7 @@ class VirtualenvCommand(sublime_plugin.WindowCommand):
             # Notify LSP-pyright of the virtual environment change
             reconfigure_lsp_pyright(os.path.join(venv_bin_path,'python'))
 
-        sublime.status_message("Activated virtualenv: {}".format(venv_index))
+        sublime.status_message(f"Activated virtualenv: {venv_index}")
 
         print("DONE")
 
