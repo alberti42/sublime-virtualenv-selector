@@ -130,9 +130,11 @@ class VirtualenvCommand(sublime_plugin.WindowCommand):
         os.environ["VIRTUAL_ENV"] = venv_path
 
         # Add to PATH the virtualenv's bin directory
-        venv_bin_path = os.path.join(venv_path, "bin")
+        venv_bin_path = os.path.join(venv_path, "Scripts" if os.name == "nt" else "bin")
         current_path = os.environ.get("PATH", "")
         os.environ["PATH"] = os.pathsep.join([venv_bin_path, current_path])
+        print("DEBUG: PATH")
+        print(os.environ["PATH"])
 
         if reconfigure_lsp_pyright:
             # Notify LSP-pyright of the virtual environment change
