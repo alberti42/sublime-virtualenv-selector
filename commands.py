@@ -1,9 +1,7 @@
 import sublime
 import sublime_plugin
 import os
-import json
 import sys
-import hashlib
 from typing import Callable, Union
 
 reconfigure_lsp_pyright:Union[Callable[[str], None], None] = None
@@ -91,12 +89,19 @@ class VirtualenvCommand(sublime_plugin.WindowCommand):
 
     @property
     def venv_directories(self):
-        """Return the directory containing virtual environments."""
         directories = self.settings.get('environment_directories', [])
         if not isinstance(directories, list):
-            raise ValueError("Invalid type for 'environment_directory': {}. Expected a list of strings.".format(type(directories)))
+            raise ValueError(f"'environment_directories' should be a list, but got {type(directories)}.")
+        
+        # Ensure all entries are valid strings
+        validated_directories = []
+        for directory in directories:
+            if isinstance(directory, str):
+                validated_directories.append(os.path.expanduser(directory))
+            else:
+                sublime.error_message(f"Ignored invalid entry in 'environment_directories': {directory}")
 
-        return [os.path.expanduser(directory) for directory in directories if isinstance(directory,str)]
+        return validated_directories
 
     @property
     def venvs(self):
@@ -140,13 +145,15 @@ class VirtualenvCommand(sublime_plugin.WindowCommand):
     def deactivate_virtualenv(self):
         """Clear the virtual environment from the environment variables."""
         os.environ.pop("VIRTUAL_ENV", None)
-        # Reset the PATH to exclude the virtualenv
-        # original_path = os.environ.get("PATH", "").split(":")
-        # filtered_path = [
-        #     p for p in original_path if not p.startswith(self.venv_directories)
-        # ]
-        # os.environ["PATH"] = ":".join(filtered_path)
+
+        # Filter out the virtual environment's bin directory from PATH
+        venv_bin_paths = [os.path.join(directory, env, "bin") for directory in self.venv_directories for env in os.listdir(directory) if os.path.isdir(os.path.join(directory, env))]
+        current_path = os.environ.get("PATH", "").split(os.pathsep)
+        filtered_path = [path for path in current_path if path not in venv_bin_paths]
+        os.environ["PATH"] = os.pathsep.join(filtered_path)
+
         sublime.status_message("Deactivated virtualenv.")
+
 
 
 class ActivateVirtualenvCommand(VirtualenvCommand):
