@@ -1,0 +1,11 @@
+// Default Windows settings for sublime-text-virtualenv:
+{
+    // this python executable is used in order to ...
+    "executable": "python3",
+
+    // Directory in which the virtualenvs are stored
+    // Default location is the user's home directory
+    "environment_directories": [
+    	"~/.virtualenvs"
+    ]
+}

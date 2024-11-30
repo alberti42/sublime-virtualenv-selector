@@ -1,0 +1,24 @@
+[{
+    "caption": "Preferences",
+    "id": "preferences",
+    "mnemonic": "n",
+    "children": [{
+        "caption": "Package Settings",
+        "id": "package-settings",
+        "mnemonic": "V",
+        "children": [{
+            "caption": "Virtualenv",
+            "children": [
+                {
+                    "caption": "Settings",
+                    "command": "edit_settings",
+                    "args":
+                     {
+                         "base_file": "${packages}/Virtualenv/Virtualenv (${platform}).sublime-settings",
+                         "default": "{\n\t$0\n}\n"
+                     }
+                }
+            ]
+        }]
+    }]
+}]

@@ -1,0 +1,4 @@
+[
+    { "caption": "Virtualenv: Activate Environment", "command": "activate_virtualenv" },
+    { "caption": "Virtualenv: Deactivate Environment", "command": "deactivate_virtualenv" },
+]

@@ -1,0 +1,39 @@
+{
+    "folders":
+    [
+        {
+            "path": ".",
+            "file_include_patterns":
+            [
+                "*"
+            ],
+            "folder_exclude_patterns":
+            [
+                ".ipynb_checkpoints",
+                "__pycache__",
+                ".vscode"
+            ]
+        }
+    ],
+    "settings":
+    {
+        "LSP":
+        {
+            "LSP-pyright":
+            {
+                "settings":
+                {
+                    // Specify the Python executable to use for Pyright
+                    "python.pythonPath": "/usr/local/bin/python3",
+                    "python.analysis.typeCheckingMode": "basic",
+                    "python.analysis.reportOptionalSubscript": "error",
+                    // Add the paths to the Sublime Text API modules
+                    "python.analysis.extraPaths":
+                    [
+                        "/Applications/Sublime Text.app/Contents/MacOS/Lib/python38"
+                    ]
+                }
+            }
+        }
+    }
+}

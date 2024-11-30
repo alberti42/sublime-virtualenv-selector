@@ -1,0 +1,9 @@
+{
+    // target uses the ExecuteVenvCommand found in commands.py
+    "target": "execute_venv",
+    "cmd": ["python", "-u", "$file"],
+    "file_regex": "^[ ]*File \"(...*?)\", line ([0-9]*)",
+    "selector": "source.python",
+    "env": {"PYTHONIOENCODING": "utf-8"},
+    "cancel": {"kill": true}
+}
