@@ -3,6 +3,15 @@ import sublime_plugin
 import os
 import sys
 from typing import Callable, Union
+import logging
+
+# Configure the "Virtualenv" logger directly
+logger = logging.getLogger("Virtualenv")
+logger.setLevel(logging.INFO)  # Set the logging level
+handler = logging.StreamHandler()
+handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+logger.handlers.clear() # Remove existing handlers (if any)
+logger.addHandler(handler)
 
 reconfigure_lsp_pyright:Union[Callable[[str], None], None] = None
 
@@ -28,14 +37,14 @@ if all([module in sys.modules for module in [
 
         lsp_window = LSP_plugin_core_registry.windows.lookup(window)  # LSP's registry lookup
         if not lsp_window:
-            print("No LSP window context found.")
+            logger.error("No LSP window context found.")
             return None
 
         session = lsp_window.get_session("LSP-pyright", "syntax")
         if isinstance(session, LSP_plugin_core_sessions.Session):
             return session
         else:
-            print("No active LSP-pyright session found.")
+            logger.error("No active LSP-pyright session found.")
             return None
 
     def send_did_change_configuration(session: LSP_plugin_core_sessions.Session, config: dict)->None:
@@ -62,10 +71,8 @@ if all([module in sys.modules for module in [
             }
         }
 
-        print("NEW CONFIG")
-        print(new_config)
-
-        # print(f"[DEBUG] Sending configuration: {new_config}")
+        logger.debug(f"NEW CONFIG: {new_config}")
+        
         send_did_change_configuration(session, new_config)
     
     reconfigure_lsp_pyright = reconfigure_lsp_pyright_with_LSP
@@ -133,16 +140,15 @@ class VirtualenvCommand(sublime_plugin.WindowCommand):
         venv_bin_path = os.path.join(venv_path, "Scripts" if os.name == "nt" else "bin")
         current_path = os.environ.get("PATH", "")
         os.environ["PATH"] = os.pathsep.join([venv_bin_path, current_path])
-        print("DEBUG: PATH")
-        print(os.environ["PATH"])
-
+        logger.debug(f'PATH: {os.environ["PATH"]}')
+        
         if reconfigure_lsp_pyright:
             # Notify LSP-pyright of the virtual environment change
             reconfigure_lsp_pyright(os.path.join(venv_bin_path,'python'))
-
-        sublime.status_message(f"Activated virtualenv: {venv_index}")
-
-        print("DONE")
+        
+        msg = f'Activated virtualenv: {selected_venv["env"]}'
+        sublime.status_message(msg)
+        logger.info(msg)
 
     def deactivate_virtualenv(self):
         """Clear the virtual environment from the environment variables."""
