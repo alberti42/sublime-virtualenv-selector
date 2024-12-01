@@ -4,8 +4,10 @@ import sublime_plugin
 import os
 import sys
 from abc import ABC, abstractmethod
-from typing import Callable, Union, Optional, Any, Dict, List, Type
+from typing import Callable, Union, Optional, Any, Dict, List, Type, Literal, TYPE_CHECKING, cast
 import logging
+
+# --- Logging functions (BEGIN) ------------------------------------------------------------
 
 # Configure the "Virtualenv" logger directly
 logger = logging.getLogger("Virtualenv")
@@ -15,7 +17,32 @@ handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s -
 logger.handlers.clear() # Remove existing handlers (if any)
 logger.addHandler(handler)
 
-from typing import TYPE_CHECKING
+LogLevels = list(logging._nameToLevel.keys())
+Typing_LogLevel = Literal["NOTSET", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
+def get_normalized_log_level(level: Any) -> Typing_LogLevel:
+    """
+    Normalize the provided log level to a valid logging level.
+
+    Args:
+        level (Union[str, int, None]): The level to validate and normalize.
+
+    Returns:
+        Typing_LogLevel: The log level in normalized form ("NOTSET", "DEBUG", etc.).
+    """
+    # Ensure level is a string and normalize it
+    if isinstance(level, str):
+        normalized_level = level.strip().upper()
+        if normalized_level in logging._nameToLevel.keys():
+            #  We apply the dictionary back and forth to get rid of synonymes in the log levels
+            return cast(Typing_LogLevel,logging._levelToName[logging._nameToLevel[normalized_level]])
+
+    # Fallback to "NOTSET" for invalid cases
+    return "NOTSET"
+
+# --- Logging functions (END) ------------------------------------------------------------
+
+# --- OptionalPluginHandler (BEGIN) ------------------------------------------------------------
 
 if TYPE_CHECKING:
     from LSP.plugin.core.sessions import Session as Typing_LSP_Session
@@ -23,8 +50,6 @@ if TYPE_CHECKING:
 else:
     Typing_LSP_Session = None       # Fallback to None for runtime
     Typing_LSP_Notification = None  # Fallback to None for runtime
-
-# --- OptionalPluginHandler (BEGIN) ------------------------------------------------------------
 
 class OptionalPluginHandler(ABC):
     """
@@ -204,23 +229,64 @@ def reconfigure_lsp_pyright(python_path:str)->None:
 
 # --- LSP functions (END) ------------------------------------------------------------
 
+
 class VirtualenvCommand(sublime_plugin.WindowCommand):
     """Base class for handling Python virtual environments."""
 
-    @property
-    def settings(self):
-        """Load the platform-specific plugin settings for commands to use."""
+    _settings:Optional[sublime.Settings] = None # Cache the current settings
+    _log_level:Typing_LogLevel = logging.INFO # Cache the current log level
+
+    def __init__(self, window: sublime.Window):
+        super().__init__(window)
+
+        self.load_settings()
+
+    def settings_filename(self):
+        """Compute the settings file key based on the platform."""
         env_vars = self.window.extract_variables()
-        filename = 'Virtualenv (${platform}).sublime-settings'  # the template ${platform} will be replaced by sublime.expand_variables
+        filename = 'Virtualenv (${platform}).sublime-settings'
         expanded = sublime.expand_variables(filename, env_vars)
         
         # Ensure expanded is a string
         if not isinstance(expanded, str):
             raise ValueError("Expanded settings filename must be a string.")
 
-        settings = sublime.load_settings(expanded)
+        return expanded
 
-        return settings
+    @property
+    def settings(self) -> sublime.Settings:
+        if self._settings is None:
+            raise RuntimeError("Unexpected error where Settings was not loaded")
+        return self._settings
+
+    def load_settings(self):
+        """Load the platform-specific plugin settings and set up listeners."""
+        settings_filename = self.settings_filename()
+        # sublime.load_settings() returns a reference to the live settings object managed by Sublime
+        self._settings = sublime.load_settings(settings_filename)
+        
+        # Add a listener for changes to the "log_level" setting
+        self._settings.clear_on_change("VirtualenvCommand")
+        self._settings.add_on_change("VirtualenvCommand", self.on_settings_changed)
+
+        # React to the current "log_level" value
+        self.on_settings_changed()
+
+    def on_settings_changed(self):
+        """React to changes in the settings."""
+        if self.settings:
+            new_log_level = self.settings.get("log_level", "INFO")  # Default to "INFO"
+            if new_log_level != self._log_level:
+                normalizedLogLevel = get_normalized_log_level(new_log_level)
+                if normalizedLogLevel is not logging.NOTSET:
+                    # Change the logging level only if a valid log level is provided
+                    self._log_level = normalizedLogLevel
+                    self.handle_log_level_change(new_log_level)
+
+    def handle_log_level_change(self, new_log_level):
+        """Handle changes to the log level setting."""
+        logger.info(f"Log level changed to: {new_log_level}")
+        logger.setLevel(self._log_level)
 
     @property
     def venv_directories(self):

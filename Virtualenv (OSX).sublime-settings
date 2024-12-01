@@ -3,6 +3,8 @@
     // this python executable is used in order to ...
     "executable": "python3",
 
+    "log_level": "INFO",
+
     // Directory in which the virtualenvs are stored
     // Default location is the user's home directory
     "environment_directories": [
