@@ -1,8 +1,10 @@
+from LSP.plugin.core.windows import WindowRegistry
 import sublime
 import sublime_plugin
 import os
 import sys
-from typing import Callable, Union
+from abc import ABC, abstractmethod
+from typing import Callable, Union, Optional, Any, Dict, List, Type
 import logging
 
 # Configure the "Virtualenv" logger directly
@@ -13,70 +15,194 @@ handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s -
 logger.handlers.clear() # Remove existing handlers (if any)
 logger.addHandler(handler)
 
-reconfigure_lsp_pyright:Union[Callable[[str], None], None] = None
+from typing import TYPE_CHECKING
 
-if all([module in sys.modules for module in [
-        "LSP.plugin.core.registry",
-        "LSP.plugin.core.sessions",
-        "LSP.plugin.core.protocol",
-        "LSP-pyright"
-]]):
-    try:
-        import LSP.plugin.core.sessions as LSP_plugin_core_sessions
-        import LSP.plugin.core.protocol as LSP_plugin_core_protocol
-        import LSP.plugin.core.registry as LSP_plugin_core_registry
-    except ImportError:
-        raise RuntimeError("LSP-pyright is not installed.")
+if TYPE_CHECKING:
+    from LSP.plugin.core.sessions import Session as Typing_LSP_Session
+    from LSP.plugin.core.protocol import Notification as Typing_LSP_Notification
+else:
+    Typing_LSP_Session = None       # Fallback to None for runtime
+    Typing_LSP_Notification = None  # Fallback to None for runtime
+
+# --- OptionalPluginHandler (BEGIN) ------------------------------------------------------------
+
+class OptionalPluginHandler(ABC):
+    """
+    Abstract base class for handling optional plugins with required classes.
+    """
+    _instance = None
+    _is_available: Optional[bool] = None
+    _cached_classes: Dict[str, Any] = {}  # Cache for class references
+
+    @property
+    @abstractmethod
+    def required_members(self) -> List[Dict[str, str]]:
+        """
+        Define the required classes and their respective modules.
+        Must be overridden in subclasses.
+        """
+        pass
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super(OptionalPluginHandler, cls).__new__(cls)
+            cls._instance._initialize()
+        return cls._instance
+
+    def _initialize(self):
+        """Initialize the class by pre-checking if the plugin is available."""
+        _ = self.is_plugin_available  # Trigger the property to cache availability
+
+    @property
+    def is_plugin_available(self) -> bool:
+        """
+        Check if the required classes are loaded and cache their references.
+
+        Returns:
+            bool: True if the plugin's required classes are available, False otherwise.
+        """
+        if self._is_available is None:
+            all_available = True
+
+            for required_class in self.required_members:
+                module_name = required_class["module"]
+                class_name = required_class["member"]
+                key = f"{module_name}.{class_name}".replace(".", "_")
+
+                if module_name in sys.modules:
+                    module = sys.modules[module_name]
+                    try:
+                        # Cache the class reference
+                        self._cached_classes[key] = getattr(module, class_name)
+                    except AttributeError:
+                        print(f"Class '{class_name}' not found in module '{module_name}'.")
+                        all_available = False
+                        self._cached_classes[key] = None
+                else:
+                    print(f"Module '{module_name}' not found.")
+                    all_available = False
+                    self._cached_classes[key] = None
+
+            self._is_available = all_available
+        return self._is_available
+
+    def get_cached_class(self, module_name: str, class_name: str) -> Optional[Any]:
+        """
+        Retrieve a cached class reference by module and class name.
+
+        Args:
+            module_name (str): The module name.
+            class_name (str): The class name.
+
+        Returns:
+            Optional[Any]: The cached class reference, or None if not found.
+        """
+        key = f"{module_name}.{class_name}".replace(".", "_")
+        return self._cached_classes.get(key, None)
+
+# --- OptionalPluginHandler (END) ------------------------------------------------------------
+
+# --- Derived classes (BEGIN) ------------------------------------------------------------
+
+class LSPPluginHandler(OptionalPluginHandler):
+    """
+    Concrete implementation for handling the LSP plugin.
+    """
+    @property
+    def required_members(self) -> List[Dict[str, str]]:
+        return [
+            {"member": "windows", "module": "LSP.plugin.core.registry"},
+            {"member": "Notification", "module": "LSP.plugin.core.protocol"},
+        ]
+
+    @property
+    def windows(self) -> WindowRegistry:
+        """Retrieve the windows registry."""
+        windows = self.get_cached_class("LSP.plugin.core.registry", "windows")
+        if windows is None:
+            raise RuntimeError("windows not found in LSP.plugin.core.registry")
+        return windows
+
+    @property
+    def Notification(self) -> Type["Typing_LSP_Notification"]:
+        """Retrieve the Notification class."""
+        Notification = self.get_cached_class("LSP.plugin.core.protocol", "Notification")
+        if Notification is None:
+            raise RuntimeError("Notification not found in LSP.plugin.core.protocol")
+        return Notification
+
+class LSP_pyrightPluginHandler(OptionalPluginHandler):
+    """
+    Concrete implementation for handling the LSP plugin.
+    """
+    @property
+    def required_members(self) -> List[Dict[str, str]]:
+        return [
+            {"member": "LspPyrightCreateConfigurationCommand", "module": "LSP-pyright.plugin"},
+        ]
+
+    def is_plugin_available(self) -> bool:
+        # Check that both plugins are available, LSP and LSP-pyright
+        lsp_plugin_handler = LSPPluginHandler()
+        return lsp_plugin_handler.is_plugin_available and super().is_plugin_available
+
+# --- Derived classes (END) ------------------------------------------------------------
+
+# --- LSP functions (BEGIN) ------------------------------------------------------------
+
+def get_lsp_session()->Optional[Typing_LSP_Session]:
+    """Retrieve the active LSP session for LSP-pyright."""
+
+    lsp_plugin_handler = LSPPluginHandler()
+    LSP_windows = lsp_plugin_handler.windows
+
+    window = sublime.active_window()  # Use Sublime's active window
     
-    def get_lsp_session()->Union[LSP_plugin_core_sessions.Session,None]:
-        """Retrieve the active LSP session for LSP-pyright."""
-        
-        window = sublime.active_window()  # Use Sublime's active window
-        if not window:
-            return None
+    lsp_window = LSP_windows.lookup(window)  # LSP's registry lookup
+    if not lsp_window:
+        logger.error("No LSP window context found.")
+        return None
 
-        lsp_window = LSP_plugin_core_registry.windows.lookup(window)  # LSP's registry lookup
-        if not lsp_window:
-            logger.error("No LSP window context found.")
-            return None
+    session = lsp_window.get_session("LSP-pyright", "syntax")
+    if session is not None:
+        return session
+    else:
+        logger.error("No active LSP-pyright session found.")
+        return None
 
-        session = lsp_window.get_session("LSP-pyright", "syntax")
-        if isinstance(session, LSP_plugin_core_sessions.Session):
-            return session
-        else:
-            logger.error("No active LSP-pyright session found.")
-            return None
+def send_did_change_configuration(session: Typing_LSP_Session, config: dict)->None:
+    """Send a workspace/didChangeConfiguration notification to the LSP server."""
 
-    def send_did_change_configuration(session: LSP_plugin_core_sessions.Session, config: dict)->None:
-        """Send a workspace/didChangeConfiguration notification to the LSP server."""
-        params = {"settings": config}
-        notification = LSP_plugin_core_protocol.Notification("workspace/didChangeConfiguration", params)
-        session.send_notification(notification)
+    lsp_plugin_handler = LSPPluginHandler()
+    Notification = lsp_plugin_handler.Notification
 
-    def reconfigure_lsp_pyright_with_LSP(python_path:str)->None:
-        """Trigger the workspace/configuration request to update LSP-pyright."""
+    params = {"settings": config}
+    notification = Notification("workspace/didChangeConfiguration", params)
+    session.send_notification(notification)
 
-        session = get_lsp_session()
-        if not session:
-            return
+def reconfigure_lsp_pyright(python_path:str)->None:
+    """Trigger the workspace/configuration request to update LSP-pyright."""
 
-        # Create the configuration
-        new_config = {
-            "python": {
-                "pythonPath": python_path,
-                "analysis": {
-                    "typeCheckingMode": "basic",
-                    "reportOptionalSubscript": "error"
-                }
+    session = get_lsp_session()
+    if not session:
+        return
+
+    # Create the configuration
+    new_config = {
+        "python": {
+            "pythonPath": python_path,
+            "analysis": {
+                "typeCheckingMode": "basic",
+                "reportOptionalSubscript": "error"
             }
         }
+    }
 
-        logger.debug(f"NEW CONFIG: {new_config}")
-        
-        send_did_change_configuration(session, new_config)
+    logger.debug(f"NEW CONFIG: {new_config}")
     
-    reconfigure_lsp_pyright = reconfigure_lsp_pyright_with_LSP
+    send_did_change_configuration(session, new_config)
 
+# --- LSP functions (END) ------------------------------------------------------------
 
 class VirtualenvCommand(sublime_plugin.WindowCommand):
     """Base class for handling Python virtual environments."""
@@ -92,11 +218,14 @@ class VirtualenvCommand(sublime_plugin.WindowCommand):
         if not isinstance(expanded, str):
             raise ValueError("Expanded settings filename must be a string.")
 
-        return sublime.load_settings(expanded)
+        settings = sublime.load_settings(expanded)
+
+        return settings
 
     @property
     def venv_directories(self):
-        directories = self.settings.get('environment_directories', [])
+        settings = self.settings
+        directories = settings.get('environment_directories', [])
         if not isinstance(directories, list):
             raise ValueError(f"'environment_directories' should be a list, but got {type(directories)}.")
         
@@ -141,9 +270,9 @@ class VirtualenvCommand(sublime_plugin.WindowCommand):
         current_path = os.environ.get("PATH", "")
         os.environ["PATH"] = os.pathsep.join([venv_bin_path, current_path])
         logger.debug(f'PATH: {os.environ["PATH"]}')
-        
-        if reconfigure_lsp_pyright:
-            # Notify LSP-pyright of the virtual environment change
+
+        lsp_pyright_plugin_handler = LSP_pyrightPluginHandler()
+        if lsp_pyright_plugin_handler.is_plugin_available:
             reconfigure_lsp_pyright(os.path.join(venv_bin_path,'python'))
         
         msg = f'Activated virtualenv: {selected_venv["env"]}'

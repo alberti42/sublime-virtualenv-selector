@@ -30,6 +30,7 @@
                     // Add the paths to the Sublime Text API modules
                     "python.analysis.extraPaths":
                     [
+                        "/Applications/Sublime Text.app/Contents/MacOS/Lib/python3.8.zip",
                         "/Applications/Sublime Text.app/Contents/MacOS/Lib/python38",
                         "/Users/andrea/Documents/Programming/Third party/"
                     ]
