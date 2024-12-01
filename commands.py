@@ -234,7 +234,7 @@ class VirtualenvCommand(sublime_plugin.WindowCommand):
     """Base class for handling Python virtual environments."""
 
     _settings:Optional[sublime.Settings] = None # Cache the current settings
-    _log_level:Typing_LogLevel = logging.INFO # Cache the current log level
+    _log_level:Typing_LogLevel = "INFO" # Cache the current log level
 
     def __init__(self, window: sublime.Window):
         super().__init__(window)

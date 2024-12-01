@@ -24,7 +24,7 @@
                 "settings":
                 {
                     // Specify the Python executable to use for Pyright
-                    "python.pythonPath": "/usr/local/bin/python3",
+                    "python.pythonPath": "python3",
                     "python.analysis.typeCheckingMode": "basic",
                     "python.analysis.reportOptionalSubscript": "error",
                     // Add the paths to the Sublime Text API modules
