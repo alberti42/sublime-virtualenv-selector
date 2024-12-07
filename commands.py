@@ -7,6 +7,15 @@ from abc import ABC, abstractmethod
 from typing import Callable, Union, Optional, Any, Dict, List, Type, Literal, TYPE_CHECKING, cast
 import logging
 
+# --- Type checking -------------------------------------------------------------------------
+
+if TYPE_CHECKING:
+    from typing import TypedDict
+
+    class VirtualEnvInfo(TypedDict):
+        env: str
+        dir: str
+
 # --- Logging functions (BEGIN) ------------------------------------------------------------
 
 # Configure the "Virtualenv" logger directly
@@ -40,7 +49,50 @@ def get_normalized_log_level(level: Any) -> Typing_LogLevel:
     # Fallback to "NOTSET" for invalid cases
     return "NOTSET"
 
-# --- Logging functions (END) ------------------------------------------------------------
+# --- Logging functions (END) ---------------------------------------------------------------
+
+
+# --- Loading/unloading the plugin (BEGIN) --------------------------------------------------
+
+def plugin_loaded():
+    VirtualenvManager()
+
+# --- Loading/unloading the plugin (END) ----------------------------------------------------
+
+
+
+
+# --- Virtual Environment Manager (BEGIN) ---------------------------------------------------
+
+class VirtualenvManager:
+    """Singleton class to manage virtual environments in Sublime Text."""
+
+    _instance = None  # Class-level variable to store the singleton instance
+    _current_env = None # Tracks the active virtual environment
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            # Create a new instance if one doesn't already exist
+            cls._instance = super().__new__(cls, *args, **kwargs)
+
+        return cls._instance
+
+    def activate(self, venv_path: str) -> None:
+        """Activate the specified virtual environment."""
+        self._current_env = venv_path
+        os.environ["VIRTUAL_ENV"] = venv_path
+        os.environ["PATH"] = os.pathsep.join([os.path.join(venv_path, "bin"), os.environ["PATH"]])
+        sublime.status_message(f"Activated virtualenv: {venv_path}")
+
+    def deactivate(self) -> None:
+        """Deactivate the current virtual environment."""
+        self._current_env = None
+        os.environ.pop("VIRTUAL_ENV", None)
+        sublime.status_message("Deactivated virtualenv.")
+
+    def get_active_environment(self) -> Union[str, None]:
+        """Return the currently active virtual environment."""
+        return self._current_env
 
 # --- OptionalPluginHandler (BEGIN) ------------------------------------------------------------
 
@@ -229,18 +281,30 @@ def reconfigure_lsp_pyright(python_path:str)->None:
 
 # --- LSP functions (END) ------------------------------------------------------------
 
-
 class VirtualenvCommand(sublime_plugin.WindowCommand):
     """Base class for handling Python virtual environments."""
 
     _settings:Optional[sublime.Settings] = None # Cache the current settings
     _log_level:Typing_LogLevel = "INFO" # Cache the current log level
 
+    # Global variable to track the active virtual environment
+    _active_virtualenv = None
+
+    # Singleton instance of VirtualenvManager 
+    _manager:VirtualenvManager
+
     def __init__(self, window: sublime.Window):
         super().__init__(window)
 
+        # Initialize the singleton instance of VirtualenvManager
+        self._manager = VirtualenvManager()
+        print("HELLO")
+        print(self._manager)
+
+        # Load settings
         self.load_settings()
 
+        
     def settings_filename(self):
         """Compute the settings file key based on the platform."""
         env_vars = self.window.extract_variables()
@@ -288,13 +352,18 @@ class VirtualenvCommand(sublime_plugin.WindowCommand):
         logger.info(f"Log level changed to: {new_log_level}")
         logger.setLevel(self._log_level)
 
+    def plugin_loaded(self):
+        # Ensure VirtualenvManager is initialized when the plugin loads
+        print("HELLO")
+        VirtualenvManager()
+
     @property
     def venv_directories(self):
         settings = self.settings
         directories = settings.get('environment_directories', [])
         if not isinstance(directories, list):
             raise ValueError(f"'environment_directories' should be a list, but got {type(directories)}.")
-        
+
         # Ensure all entries are valid strings
         validated_directories = []
         for directory in directories:
@@ -306,18 +375,28 @@ class VirtualenvCommand(sublime_plugin.WindowCommand):
         return validated_directories
 
     @property
-    def venvs(self):
+    def venvs(self) -> List["VirtualEnvInfo"]:
         """List all virtual environments in the venv directories."""
-        environments = []
+        environments: List["VirtualEnvInfo"] = []
+
+        # Add virtual environments from the configured directories
         for directory in self.venv_directories:
             try:
                 environments.extend(
-                    {"env":env, "dir":directory}
+                    {"env": env, "dir": directory}
                     for env in os.listdir(directory) if os.path.isdir(os.path.join(directory, env))
                 )
             except FileNotFoundError:
                 # Skip directories that don't exist
                 continue
+
+        # Check for `.venv` in project folders and add it
+        project_folders = self.window.folders()
+        for folder in project_folders:
+            venv_path = os.path.join(folder, '.venv')
+            if os.path.isdir(venv_path):
+                environments.append({"env": ".venv", "dir": folder})
+
         return environments
 
     def activate_virtualenv(self, venv_index):
