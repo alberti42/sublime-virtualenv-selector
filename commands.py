@@ -25,7 +25,6 @@ LSPPluginType = Literal["LSP-pyright","LSP-basepyright","None"]
 
 # Configure the "Virtualenv" logger directly
 logger = logging.getLogger("Virtualenv")
-logger.setLevel(logging.INFO)  # Set the logging level
 
 LogLevels = list(logging._nameToLevel.keys())
 LogLevelType = Literal["NOTSET", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
