@@ -213,9 +213,6 @@ class VirtualenvManager:
         # Keep track of the added environment name
         env = selected_venv["env"]
 
-        # Set VIRTUAL_ENV
-        VIRTUAL_ENV = venv_path
-        
         # Path to be added
         venv_bin_path = os.path.join(venv_path, "Scripts" if sublime.platform == "win" else "bin")
 
@@ -231,13 +228,15 @@ class VirtualenvManager:
         if self.add_to_PATH(venv_bin_path):
             added_path = venv_bin_path
 
+        # Set VIRTUAL_ENV
+        VIRTUAL_ENV = venv_path
+        os.environ["VIRTUAL_ENV"] = VIRTUAL_ENV
+
         self._activated_envs.append({
             "env": env,
             "VIRTUAL_ENV": VIRTUAL_ENV,
             "added_path": added_path
         })
-
-        os.environ["VIRTUAL_ENV"] = venv_path
 
         # Python path
         pythonPath = os.path.join(venv_bin_path,'python')
@@ -281,6 +280,8 @@ class VirtualenvManager:
         # Restore the VIRTUAL_ENV variable
         if env_prev_activated:
             os.environ["VIRTUAL_ENV"] = env_prev_activated["VIRTUAL_ENV"]
+        else:
+            os.environ.pop("VIRTUAL_ENV",None)
 
         # Restore the old added path
         if env_prev_activated and env_prev_activated["added_path"]:
