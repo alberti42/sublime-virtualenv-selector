@@ -54,7 +54,10 @@ def get_normalized_log_level(level: Any) -> Typing_LogLevel:
 
 # --- Loading/unloading the plugin (BEGIN) --------------------------------------------------
 
-def plugin_loaded():
+def plugin_loaded() -> None:
+    """Initialize the plugin by loading the Virtual Environment Manager."""
+
+    # Create a singleton instance of VirtualenvManager
     VirtualenvManager()
 
 # --- Loading/unloading the plugin (END) ----------------------------------------------------
@@ -66,31 +69,143 @@ def plugin_loaded():
 class VirtualenvManager:
     """Singleton class to manage virtual environments in Sublime Text."""
 
-    _instance = None  # Class-level variable to store the singleton instance
-    _current_env = None # Tracks the active virtual environment
+    _instance:Union["VirtualenvManager",None] = None  # Class-level variable to store the singleton instance
+    _current_env:Union[str,None] = None # Tracks the active virtual environment
 
-    def __new__(cls, *args, **kwargs):
+    _settings_filename:Union[str,None] = None # File name of settings
+    _settings:Optional[sublime.Settings] = None # Cache the current settings
+    _log_level:Typing_LogLevel = "INFO" # Cache the current log level
+
+    def __new__(cls):
         if cls._instance is None:
             # Create a new instance if one doesn't already exist
-            cls._instance = super().__new__(cls, *args, **kwargs)
-
+            cls._instance = super().__new__(cls)
+            cls._instance._initialize()
         return cls._instance
 
-    def activate(self, venv_path: str) -> None:
-        """Activate the specified virtual environment."""
-        self._current_env = venv_path
-        os.environ["VIRTUAL_ENV"] = venv_path
-        os.environ["PATH"] = os.pathsep.join([os.path.join(venv_path, "bin"), os.environ["PATH"]])
-        sublime.status_message(f"Activated virtualenv: {venv_path}")
+    def _initialize(self) -> None:
+        """Initialize the class."""
 
-    def deactivate(self) -> None:
-        """Deactivate the current virtual environment."""
-        self._current_env = None
-        os.environ.pop("VIRTUAL_ENV", None)
-        sublime.status_message("Deactivated virtualenv.")
+        # Load settings
+        self.load_settings()
 
+        
+    @property
+    def settings_filename(self) -> str:
+        """Compute the settings file key based on the platform."""
+        
+        if self._settings_filename is not None:
+            return self._settings_filename
+
+        platform_mapping = {
+            "win": "Windows",
+            "osx": "OSX",
+            "linux": "Linux"
+        }
+
+        platform = platform_mapping[sublime.platform()]
+
+        filename = f'Virtualenv ({platform}).sublime-settings'
+        
+        # Ensure expanded is a string
+        if not isinstance(filename, str):
+            raise ValueError("Expanded settings filename must be a string.")
+
+        # Cache the filename
+        self._settings_filename = filename
+
+        return filename
+
+    @property
+    def settings(self) -> sublime.Settings:
+        if self._settings is None:
+            raise RuntimeError("Unexpected error where Settings was not loaded")
+        return self._settings
+
+    def load_settings(self):
+        """Load the platform-specific plugin settings and set up listeners."""
+        
+        # sublime.load_settings() returns a reference to the live settings object managed by Sublime
+        self._settings = sublime.load_settings(self.settings_filename)
+        
+        # Add a listener for changes to the "log_level" setting
+        self._settings.clear_on_change("VirtualenvCommand")
+        self._settings.add_on_change("VirtualenvCommand", self.on_settings_changed)
+
+        # React to the current "log_level" value
+        self.on_settings_changed()
+
+    def on_settings_changed(self):
+        """React to changes in the settings."""
+        if self.settings:
+            new_log_level = self.settings.get("log_level", "INFO")  # Default to "INFO"
+            if new_log_level != self._log_level:
+                normalizedLogLevel = get_normalized_log_level(new_log_level)
+                if normalizedLogLevel is not logging.NOTSET:
+                    # Change the logging level only if a valid log level is provided
+                    self._log_level = normalizedLogLevel
+                    self.handle_log_level_change(new_log_level)
+
+    def handle_log_level_change(self, new_log_level):
+        """Handle changes to the log level setting."""
+        logger.info(f"Log level changed to: {new_log_level}")
+        logger.setLevel(self._log_level)
+
+    @property
+    def venv_directories(self):
+        settings = self.settings
+        directories = settings.get('environment_directories', [])
+        if not isinstance(directories, list):
+            raise ValueError(f"'environment_directories' should be a list, but got {type(directories)}.")
+
+        # Ensure all entries are valid strings
+        validated_directories = []
+        for directory in directories:
+            if isinstance(directory, str):
+                validated_directories.append(os.path.expanduser(directory))
+            else:
+                sublime.error_message(f"Ignored invalid entry in 'environment_directories': {directory}")
+
+        return validated_directories
+
+    def get_venvs(self,window:sublime.Window) -> List["VirtualEnvInfo"]:
+        """List all virtual environments in the venv directories."""
+        environments: List["VirtualEnvInfo"] = []
+
+        # Add virtual environments from the configured directories
+        for directory in self.venv_directories:
+            try:
+                environments.extend(
+                    {"env": env, "dir": directory}
+                    for env in os.listdir(directory) if os.path.isdir(os.path.join(directory, env))
+                )
+            except FileNotFoundError:
+                # Skip directories that don't exist
+                continue
+
+        # Check for `.venv` in project folders and add it
+        project_folders = window.folders()
+        for folder in project_folders:
+            venv_path = os.path.join(folder, '.venv')
+            if os.path.isdir(venv_path):
+                environments.append({"env": ".venv", "dir": folder})
+
+        return environments
 
     
+
+    def deactivate_virtualenv(self):
+        """Clear the virtual environment from the environment variables."""
+        os.environ.pop("VIRTUAL_ENV", None)
+
+        # Filter out the virtual environment's bin directory from PATH
+        venv_bin_paths = [os.path.join(directory, env, "bin") for directory in self.venv_directories for env in os.listdir(directory) if os.path.isdir(os.path.join(directory, env))]
+        current_path = os.environ.get("PATH", "").split(os.pathsep)
+        filtered_path = [path for path in current_path if path not in venv_bin_paths]
+        os.environ["PATH"] = os.pathsep.join(filtered_path)
+
+        sublime.status_message("Deactivated virtualenv.")
+
 
     @property
     def active_environment(self) -> Union[str, None]:
@@ -284,131 +399,48 @@ def reconfigure_lsp_pyright(python_path:str)->None:
 
 # --- LSP functions (END) ------------------------------------------------------------
 
-class VirtualenvCommand(sublime_plugin.WindowCommand):
-    """Base class for handling Python virtual environments."""
+# --- 
 
-    _settings_filename:str # File name of settings
-    _settings:Optional[sublime.Settings] = None # Cache the current settings
-    _log_level:Typing_LogLevel = "INFO" # Cache the current log level
+class ActivateVirtualenvCommand(sublime_plugin.WindowCommand):
+    """Command to list and activate virtual environments."""
 
-    # Global variable to track the active virtual environment
-    _active_virtualenv = None
+    _venvs:Union[List["VirtualEnvInfo"], None] = None
 
-    # Singleton instance of VirtualenvManager 
-    _manager:VirtualenvManager
+    def run(self) -> None:
+        """Show a quick panel with available virtual environments."""
 
-    def __init__(self, window: sublime.Window):
-        super().__init__(window)
+        # Load the Virtual Environment Manager
+        manager = VirtualenvManager()
 
-        # Initialize the singleton instance of VirtualenvManager
-        self._manager = VirtualenvManager()
-        print("HELLO")
-        print(self._manager)
+        # Get the list of available virtual environments
+        self._venvs = manager.get_venvs(self.window)
 
-        # Load settings
-        self.load_settings()
+        panel_items:List[sublime.QuickPanelItem]
+        if self._venvs:
+            panel_items=[sublime.QuickPanelItem(venv["env"],"<i>"+venv["dir"]+"</i>") for venv in self._venvs]
+        else:
+            panel_items=[sublime.QuickPanelItem("No virtual environments found","<i>Add any directory containing virtual environments to <b>environment_directories</b> in the settings.</i>")]
 
+        self.window.show_quick_panel(
+            panel_items, self.on_select, placeholder="Select a virtualenv to activate"
+        )
+
+    def on_select(self, index:int) -> None:
+        """Handle selection from the quick panel."""
+        if index == -1:
+            return
         
-    def settings_filename(self):
-        """Compute the settings file key based on the platform."""
+        if self._venvs is None:
+            # If no virtual environments were found, opens the Virtualenv user settings file
+
+            # Load the Virtual Environment Manager
+            manager = VirtualenvManager()
+            # Open the user settings file
+            sublime.active_window().run_command("open_file", {"file": "${packages}/User/" + manager.settings_filename})
+
+            return
         
-        platform_mapping = {
-            "win": "Windows",
-            "osx": "OSXX",
-            "linux": "Linux"
-        }
-
-        platform = platform_mapping[sublime.platform()]
-
-        env_vars = self.window.extract_variables()
-        filename = f'Virtualenv ({platform}).sublime-settings'
-        
-        # Ensure expanded is a string
-        if not isinstance(filename, str):
-            raise ValueError("Expanded settings filename must be a string.")
-
-        return filename
-
-    @property
-    def settings(self) -> sublime.Settings:
-        if self._settings is None:
-            raise RuntimeError("Unexpected error where Settings was not loaded")
-        return self._settings
-
-    def load_settings(self):
-        """Load the platform-specific plugin settings and set up listeners."""
-        self._settings_filename = self.settings_filename()
-        # sublime.load_settings() returns a reference to the live settings object managed by Sublime
-        self._settings = sublime.load_settings(self._settings_filename)
-        
-        # Add a listener for changes to the "log_level" setting
-        self._settings.clear_on_change("VirtualenvCommand")
-        self._settings.add_on_change("VirtualenvCommand", self.on_settings_changed)
-
-        # React to the current "log_level" value
-        self.on_settings_changed()
-
-    def on_settings_changed(self):
-        """React to changes in the settings."""
-        if self.settings:
-            new_log_level = self.settings.get("log_level", "INFO")  # Default to "INFO"
-            if new_log_level != self._log_level:
-                normalizedLogLevel = get_normalized_log_level(new_log_level)
-                if normalizedLogLevel is not logging.NOTSET:
-                    # Change the logging level only if a valid log level is provided
-                    self._log_level = normalizedLogLevel
-                    self.handle_log_level_change(new_log_level)
-
-    def handle_log_level_change(self, new_log_level):
-        """Handle changes to the log level setting."""
-        logger.info(f"Log level changed to: {new_log_level}")
-        logger.setLevel(self._log_level)
-
-    @property
-    def venv_directories(self):
-        settings = self.settings
-        directories = settings.get('environment_directories', [])
-        if not isinstance(directories, list):
-            raise ValueError(f"'environment_directories' should be a list, but got {type(directories)}.")
-
-        # Ensure all entries are valid strings
-        validated_directories = []
-        for directory in directories:
-            if isinstance(directory, str):
-                validated_directories.append(os.path.expanduser(directory))
-            else:
-                sublime.error_message(f"Ignored invalid entry in 'environment_directories': {directory}")
-
-        return validated_directories
-
-    @property
-    def venvs(self) -> List["VirtualEnvInfo"]:
-        """List all virtual environments in the venv directories."""
-        environments: List["VirtualEnvInfo"] = []
-
-        # Add virtual environments from the configured directories
-        for directory in self.venv_directories:
-            try:
-                environments.extend(
-                    {"env": env, "dir": directory}
-                    for env in os.listdir(directory) if os.path.isdir(os.path.join(directory, env))
-                )
-            except FileNotFoundError:
-                # Skip directories that don't exist
-                continue
-
-        # Check for `.venv` in project folders and add it
-        project_folders = self.window.folders()
-        for folder in project_folders:
-            venv_path = os.path.join(folder, '.venv')
-            if os.path.isdir(venv_path):
-                environments.append({"env": ".venv", "dir": folder})
-
-        return environments
-
-    def activate_virtualenv(self, venv_index):
-        """Set environment variables to activate the selected virtualenv."""
-        selected_venv = self.venvs[venv_index]
+        selected_venv = self._venvs[index]
         venv_path = os.path.join(selected_venv['dir'], selected_venv['env'])
         if not os.path.exists(venv_path):
             sublime.error_message(f"Virtualenv '{venv_path}' does not exist.")
@@ -431,53 +463,15 @@ class VirtualenvCommand(sublime_plugin.WindowCommand):
         sublime.status_message(msg)
         logger.info(msg)
 
-    def deactivate_virtualenv(self):
-        """Clear the virtual environment from the environment variables."""
-        os.environ.pop("VIRTUAL_ENV", None)
 
-        # Filter out the virtual environment's bin directory from PATH
-        venv_bin_paths = [os.path.join(directory, env, "bin") for directory in self.venv_directories for env in os.listdir(directory) if os.path.isdir(os.path.join(directory, env))]
-        current_path = os.environ.get("PATH", "").split(os.pathsep)
-        filtered_path = [path for path in current_path if path not in venv_bin_paths]
-        os.environ["PATH"] = os.pathsep.join(filtered_path)
-
-        sublime.status_message("Deactivated virtualenv.")
-
-
-
-class ActivateVirtualenvCommand(VirtualenvCommand):
-    """Command to list and activate virtual environments."""
-
-    def run(self):
-        """Show a quick panel with available virtual environments."""
-        venvs = self.venvs
-        panel_items:List[sublime.QuickPanelItem]
-        callback_fct:Callable[[int],None]
-        if venvs:
-            panel_items=[sublime.QuickPanelItem(venv["env"],"<i>"+venv["dir"]+"</i>") for venv in venvs]
-            callback_fct=self.on_select
-        else:
-            panel_items=[sublime.QuickPanelItem("No virtual environments found","<i>Add any directory containing virtual environments to <b>environment_directories</b> in the settings.</i>")]
-            callback_fct=self.open_settings
-
-        self.window.show_quick_panel(
-            panel_items, callback_fct, placeholder="Select a virtualenv to activate"
-        )
-
-    def open_settings(self,index):
-        """Opens the Virtualenv user settings file."""
-        sublime.active_window().run_command("open_file", {"file": "${packages}/User/" + self._settings_filename})
-
-    def on_select(self, index):
-        """Handle selection from the quick panel."""
-        if index == -1:
-            return
-        self.activate_virtualenv(index)
-
-
-class DeactivateVirtualenvCommand(VirtualenvCommand):
+class DeactivateVirtualenvCommand(sublime_plugin.WindowCommand):
     """Command to deactivate the current virtual environment."""
 
     def run(self):
         """Deactivate the currently active virtual environment."""
-        self.deactivate_virtualenv()
+        
+        # Load the Virtual Environment Manager
+        manager = VirtualenvManager()
+
+        manager.deactivate_virtualenv()
+            
