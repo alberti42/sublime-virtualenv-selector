@@ -1,20 +1,23 @@
+from optparse import Option
 from LSP.plugin.core.windows import WindowRegistry
 import sublime
 import sublime_plugin
 import os
 import sys
 from abc import ABC, abstractmethod
-from typing import Callable, Union, Optional, Any, Dict, List, Type, Literal, TYPE_CHECKING, cast
+from typing import Optional, Any, Dict, List, Type, TypedDict, Literal, TYPE_CHECKING, cast
 import logging
 
 # --- Type checking -------------------------------------------------------------------------
 
-if TYPE_CHECKING:
-    from typing import TypedDict
+class VirtualEnvInfo(TypedDict):
+    env: str
+    dir: str
 
-    class VirtualEnvInfo(TypedDict):
-        env: str
-        dir: str
+class ActivatedVirtualEnvInfo(VirtualEnvInfo):
+    added_path: Optional[str]
+    old_VIRTUAL_ENV: Optional[str]
+    old_added_path: Optional[str]
 
 # --- Logging functions (BEGIN) ------------------------------------------------------------
 
@@ -63,18 +66,17 @@ def plugin_loaded() -> None:
 # --- Loading/unloading the plugin (END) ----------------------------------------------------
 
 
-
 # --- Virtual Environment Manager (BEGIN) ---------------------------------------------------
 
 class VirtualenvManager:
     """Singleton class to manage virtual environments in Sublime Text."""
 
-    _instance:Union["VirtualenvManager",None] = None  # Class-level variable to store the singleton instance
-    _current_env:Union[str,None] = None # Tracks the active virtual environment
+    _instance:Optional["VirtualenvManager"] = None  # Class-level variable to store the singleton instance
+    _current_env:Optional["ActivatedVirtualEnvInfo"] = None # Tracks the active virtual environment
 
-    _settings_filename:Union[str,None] = None # File name of settings
+    _settings_filename:Optional[str] = None # File name of settings
     _settings:Optional[sublime.Settings] = None # Cache the current settings
-    _log_level:Union[LogLevelType,None] = None # Cache the current log level
+    _log_level:Optional[LogLevelType] = None # Cache the current log level
 
     def __new__(cls):
         if cls._instance is None:
@@ -122,7 +124,7 @@ class VirtualenvManager:
             raise RuntimeError("Unexpected error where Settings was not loaded")
         return self._settings
 
-    def load_settings(self):
+    def load_settings(self) -> None:
         """Load the platform-specific plugin settings and set up listeners."""
         
         # sublime.load_settings() returns a reference to the live settings object managed by Sublime
@@ -134,8 +136,8 @@ class VirtualenvManager:
 
         # React to the current "log_level" value
         self.on_settings_changed()
-        
-    def on_settings_changed(self):
+
+    def on_settings_changed(self) -> None:
         """React to changes in the settings."""
         if self.settings:
             new_log_level:LogLevelType = get_normalized_log_level(self.settings.get("log_level", "INFO"))  # Default to "INFO"
@@ -152,7 +154,7 @@ class VirtualenvManager:
         logger.setLevel(self._log_level)
 
     @property
-    def venv_directories(self):
+    def venv_directories(self) -> List[str]:
         settings = self.settings
         directories = settings.get('environment_directories', [])
         if not isinstance(directories, list):
@@ -192,23 +194,140 @@ class VirtualenvManager:
 
         return environments
 
-    
+    def activate_virtualenv(self,selected_venv:"VirtualEnvInfo") -> None:
+        
+        venv_path = os.path.join(selected_venv['dir'], selected_venv['env'])
+        if not os.path.exists(venv_path):
+            sublime.error_message(f"Virtualenv '{venv_path}' does not exist.")
+            return
 
-    def deactivate_virtualenv(self):
+        # Keep track of the activated environment
+        activated_env_info:ActivatedVirtualEnvInfo = {
+            "env": selected_venv["env"],
+            "dir":selected_venv["dir"],
+            "added_path":None,
+            "old_VIRTUAL_ENV":os.environ.get("VIRTUAL_ENV"),
+            "old_added_path": None
+        }
+
+        # Set $VIRTUAL_ENV
+        os.environ["VIRTUAL_ENV"] = venv_path
+
+        # Add to PATH the virtualenv's bin directory
+        venv_bin_path = os.path.join(venv_path, "Scripts" if sublime.platform == "win" else "bin")
+        was_path_added:bool = self.add_to_path(venv_bin_path)
+        if was_path_added:
+            activated_env_info["added_path"] = venv_bin_path
+
+        # Python path
+        pythonPath = os.path.join(venv_bin_path,'python')
+
+        # Notify the LSP plugin
+        self.notify_LSP(pythonPath)
+
+        # Remove from path the path of previously activated environment
+        if self._current_env:
+            if self._current_env["added_path"] is not None:
+                old_added_path = self._current_env["added_path"]
+                # If the old added path differs from the currently added path, then remove it
+                if old_added_path != venv_bin_path:
+                    self.remove_first_occurrence_in_path(old_added_path)
+                    activated_env_info["old_added_path"] = old_added_path 
+
+        # Keep track of the activated virtual environment
+        self._current_env = activated_env_info
+
+        msg = f'Activated virtualenv: {selected_venv["env"]}'
+        sublime.status_message(msg)
+        logger.info(msg)
+
+    def notify_LSP(self,pythonPath:str):
+        """Notify the LSP plugin that a virtual environment has been activated."""
+
+        lsp_pyright_plugin_handler = LSP_pyrightPluginHandler()
+        print(lsp_pyright_plugin_handler)
+
+        if lsp_pyright_plugin_handler.is_plugin_available:
+            reconfigure_lsp_pyright(pythonPath)
+        
+    def deactivate_virtualenv(self) -> None:
         """Clear the virtual environment from the environment variables."""
-        os.environ.pop("VIRTUAL_ENV", None)
+
+        if self._current_env is None:
+            return
+
+        activated_env_info:ActivatedVirtualEnvInfo = self._current_env
+
+        # Remove/restore the VIRTUAL_ENV variable
+        if self._current_env["old_VIRTUAL_ENV"] is None:
+            os.environ.pop("VIRTUAL_ENV", None)
+        else:
+            os.environ["VIRTUAL_ENV"] = self._current_env["old_VIRTUAL_ENV"]
+            self._current_env["old_VIRTUAL_ENV"] = None
+
+        # Remove the added path
+        if self._current_env["added_path"] is not None:
+            self.remove_first_occurrence_in_path(self._current_env["added_path"])
+
+        # Restore the old added path
+        if self._current_env["old_added_path"] is None:
+            pass
+        else:
+            was_path_added = self.add_to_path(self._current_env["old_added_path"])
+            if was_path_added:
+                activated_env_info["added_path"] = self._current_env["old_added_path"]
+            self._current_env["old_added_path"] = None
+
+        msg = "Deactivated virtualenv."
+        logger.info(msg)
+        sublime.status_message(msg)
+
+    @staticmethod
+    def add_to_path(path_to_add:str) -> bool:
+        """Add path_to_add to PATH."""
+
+        current_path:Optional[str] = os.environ.get("PATH")
+        current_path_items:Optional[List[str]] = None
+        if current_path is not None and current_path.strip() != "":
+            current_path_items = current_path.strip().split(":")
+        
+        if current_path_items is None:
+            current_path_items = []
+
+        if len(current_path_items)==0 or current_path_items[0] != path_to_add:
+            current_path_items.insert(0, path_to_add)
+            os.environ["PATH"] = os.pathsep.join(current_path_items)
+            return True
+
+        return False
+
+    @staticmethod
+    def remove_first_occurrence_in_path(path_to_remove:str) -> bool:
+        """Remove first occurence of path_to_remove in PATH."""
+
+        is_path_removed = False
 
         # Filter out the virtual environment's bin directory from PATH
-        venv_bin_paths = [os.path.join(directory, env, "bin") for directory in self.venv_directories for env in os.listdir(directory) if os.path.isdir(os.path.join(directory, env))]
-        current_path = os.environ.get("PATH", "").split(os.pathsep)
-        filtered_path = [path for path in current_path if path not in venv_bin_paths]
-        os.environ["PATH"] = os.pathsep.join(filtered_path)
+        current_path:Optional[str] = os.environ.get("PATH")
+        current_path_items:Optional[List[str]] = None
+        if current_path is not None and current_path.strip() != "":
+            current_path_items = current_path.strip().split(":")
+        
+        # Remove first occurrence of added_path in PATH items
+        if current_path_items is not None:
+            for index,current_path_item in enumerate(current_path_items):
+                if current_path_item == path_to_remove:
+                    del current_path_items[index]
+                    is_path_removed = True
+                    break
 
-        sublime.status_message("Deactivated virtualenv.")
+        if is_path_removed:
+            os.environ["PATH"] = os.pathsep.join(current_path_items)
 
+        return is_path_removed
 
     @property
-    def active_environment(self) -> Union[str, None]:
+    def active_environment(self) -> Optional["VirtualEnvInfo"]:
         """Return the currently active virtual environment."""
         return self._current_env
 
@@ -404,16 +523,17 @@ def reconfigure_lsp_pyright(python_path:str)->None:
 class ActivateVirtualenvCommand(sublime_plugin.WindowCommand):
     """Command to list and activate virtual environments."""
 
-    _venvs:Union[List["VirtualEnvInfo"], None] = None
+    _venvs:Optional[List["VirtualEnvInfo"]] = None
+    _manager:Optional["VirtualenvManager"] = None
 
     def run(self) -> None:
         """Show a quick panel with available virtual environments."""
 
         # Load the Virtual Environment Manager
-        manager = VirtualenvManager()
+        self._manager = VirtualenvManager()
 
         # Get the list of available virtual environments
-        self._venvs = manager.get_venvs(self.window)
+        self._venvs = self._manager.get_venvs(self.window)
 
         panel_items:List[sublime.QuickPanelItem]
         if self._venvs:
@@ -430,38 +550,19 @@ class ActivateVirtualenvCommand(sublime_plugin.WindowCommand):
         if index == -1:
             return
         
+        if self._manager is None:
+            raise RuntimeError("Unexpected error: VirtualenvManager not loaded") 
+
         if self._venvs is None:
             # If no virtual environments were found, opens the Virtualenv user settings file
-
-            # Load the Virtual Environment Manager
-            manager = VirtualenvManager()
-            # Open the user settings file
-            sublime.active_window().run_command("open_file", {"file": "${packages}/User/" + manager.settings_filename})
-
+            sublime.active_window().run_command("open_file", {"file": "${packages}/User/" + self._manager.settings_filename})
             return
         
         selected_venv = self._venvs[index]
-        venv_path = os.path.join(selected_venv['dir'], selected_venv['env'])
-        if not os.path.exists(venv_path):
-            sublime.error_message(f"Virtualenv '{venv_path}' does not exist.")
-            return
 
-        # Set $VIRTUAL_ENV
-        os.environ["VIRTUAL_ENV"] = venv_path
+        # Notify the manager of activation of venv
+        self._manager.activate_virtualenv(selected_venv)
 
-        # Add to PATH the virtualenv's bin directory
-        venv_bin_path = os.path.join(venv_path, "Scripts" if os.name == "nt" else "bin")
-        current_path = os.environ.get("PATH", "")
-        os.environ["PATH"] = os.pathsep.join([venv_bin_path, current_path])
-        logger.debug(f'PATH: {os.environ["PATH"]}')
-
-        lsp_pyright_plugin_handler = LSP_pyrightPluginHandler()
-        if lsp_pyright_plugin_handler.is_plugin_available:
-            reconfigure_lsp_pyright(os.path.join(venv_bin_path,'python'))
-        
-        msg = f'Activated virtualenv: {selected_venv["env"]}'
-        sublime.status_message(msg)
-        logger.info(msg)
 
 # --- ActivateVirtualenvCommand (END) ----------------------------------------------
 
@@ -473,9 +574,7 @@ class DeactivateVirtualenvCommand(sublime_plugin.WindowCommand):
     def run(self):
         """Deactivate the currently active virtual environment."""
         
-        # Load the Virtual Environment Manager
-        manager = VirtualenvManager()
-
-        manager.deactivate_virtualenv()
+        # Deactive the virtual environment
+        VirtualenvManager().deactivate_virtualenv()
             
 # --- DeactivateVirtualenvCommand (END) --------------------------------------------
