@@ -14,10 +14,10 @@ class VirtualEnvInfo(TypedDict):
     env: str
     dir: str
 
-class ActivatedVirtualEnvInfo(VirtualEnvInfo):
+class ActivatedVirtualEnvInfo(TypedDict):
+    env: Optional[str]
     added_path: Optional[str]
-    old_VIRTUAL_ENV: Optional[str]
-    old_added_path: Optional[str]
+    VIRTUAL_ENV: str
 
 # --- Logging functions (BEGIN) ------------------------------------------------------------
 
@@ -72,7 +72,7 @@ class VirtualenvManager:
     """Singleton class to manage virtual environments in Sublime Text."""
 
     _instance:Optional["VirtualenvManager"] = None  # Class-level variable to store the singleton instance
-    _current_env:Optional["ActivatedVirtualEnvInfo"] = None # Tracks the active virtual environment
+    _activated_envs:List["ActivatedVirtualEnvInfo"]  # Tracks the active virtual environment
 
     _settings_filename:Optional[str] = None # File name of settings
     _settings:Optional[sublime.Settings] = None # Cache the current settings
@@ -91,6 +91,15 @@ class VirtualenvManager:
         # Load settings
         self.load_settings()
 
+        # Initialize active environment info
+        if "VIRTUAL_ENV" in os.environ:
+            self._activated_envs = [{
+                "env": None,
+                "added_path":None,
+                "VIRTUAL_ENV":os.environ["VIRTUAL_ENV"]
+            }]
+        else:
+            self._activated_envs = []
         
     @property
     def settings_filename(self) -> str:
@@ -201,41 +210,40 @@ class VirtualenvManager:
             sublime.error_message(f"Virtualenv '{venv_path}' does not exist.")
             return
 
-        # Keep track of the activated environment
-        activated_env_info:ActivatedVirtualEnvInfo = {
-            "env": selected_venv["env"],
-            "dir":selected_venv["dir"],
-            "added_path":None,
-            "old_VIRTUAL_ENV":os.environ.get("VIRTUAL_ENV"),
-            "old_added_path": None
-        }
+        # Keep track of the added environment name
+        env = selected_venv["env"]
 
-        # Set $VIRTUAL_ENV
-        os.environ["VIRTUAL_ENV"] = venv_path
+        # Set VIRTUAL_ENV
+        VIRTUAL_ENV = venv_path
+        
+        # Path to be added
+        venv_bin_path = os.path.join(venv_path, "Scripts" if sublime.platform == "win" else "bin")
+
+        # Remove from PATH the path of previously activated environment
+        if len(self._activated_envs)>0:
+            old_added_path = self._activated_envs[-1]["added_path"]
+            # If the old added path differs from the currently added path, then remove it
+            if old_added_path and old_added_path != venv_bin_path:
+                self.remove_first_occurrence_in_PATH(old_added_path)
 
         # Add to PATH the virtualenv's bin directory
-        venv_bin_path = os.path.join(venv_path, "Scripts" if sublime.platform == "win" else "bin")
-        was_path_added:bool = self.add_to_path(venv_bin_path)
-        if was_path_added:
-            activated_env_info["added_path"] = venv_bin_path
+        added_path = None
+        if self.add_to_PATH(venv_bin_path):
+            added_path = venv_bin_path
+
+        self._activated_envs.append({
+            "env": env,
+            "VIRTUAL_ENV": VIRTUAL_ENV,
+            "added_path": added_path
+        })
+
+        os.environ["VIRTUAL_ENV"] = venv_path
 
         # Python path
         pythonPath = os.path.join(venv_bin_path,'python')
 
         # Notify the LSP plugin
         self.notify_LSP(pythonPath)
-
-        # Remove from path the path of previously activated environment
-        if self._current_env:
-            if self._current_env["added_path"] is not None:
-                old_added_path = self._current_env["added_path"]
-                # If the old added path differs from the currently added path, then remove it
-                if old_added_path != venv_bin_path:
-                    self.remove_first_occurrence_in_path(old_added_path)
-                    activated_env_info["old_added_path"] = old_added_path 
-
-        # Keep track of the activated virtual environment
-        self._current_env = activated_env_info
 
         msg = f'Activated virtualenv: {selected_venv["env"]}'
         sublime.status_message(msg)
@@ -253,37 +261,39 @@ class VirtualenvManager:
     def deactivate_virtualenv(self) -> None:
         """Clear the virtual environment from the environment variables."""
 
-        if self._current_env is None:
+        if len(self._activated_envs)==0:
             return
 
-        activated_env_info:ActivatedVirtualEnvInfo = self._current_env
+        # Environment to deactivate, remove it from the queue
+        env_to_be_deactivated = self._activated_envs.pop()
 
-        # Remove/restore the VIRTUAL_ENV variable
-        if self._current_env["old_VIRTUAL_ENV"] is None:
-            os.environ.pop("VIRTUAL_ENV", None)
+        # Last activated environment
+        env_prev_activated = Optional[ActivatedVirtualEnvInfo]
+        if len(self._activated_envs)>0:
+            env_prev_activated = self._activated_envs[-1]
         else:
-            os.environ["VIRTUAL_ENV"] = self._current_env["old_VIRTUAL_ENV"]
-            self._current_env["old_VIRTUAL_ENV"] = None
+            env_prev_activated = None
 
         # Remove the added path
-        if self._current_env["added_path"] is not None:
-            self.remove_first_occurrence_in_path(self._current_env["added_path"])
+        if env_to_be_deactivated["added_path"]:
+            self.remove_first_occurrence_in_PATH(env_to_be_deactivated["added_path"])
+
+        # Restore the VIRTUAL_ENV variable
+        if env_prev_activated:
+            os.environ["VIRTUAL_ENV"] = env_prev_activated["VIRTUAL_ENV"]
 
         # Restore the old added path
-        if self._current_env["old_added_path"] is None:
-            pass
-        else:
-            was_path_added = self.add_to_path(self._current_env["old_added_path"])
-            if was_path_added:
-                activated_env_info["added_path"] = self._current_env["old_added_path"]
-            self._current_env["old_added_path"] = None
+        if env_prev_activated and env_prev_activated["added_path"]:
+            was_path_added = self.add_to_PATH(env_prev_activated["added_path"])
+            if was_path_added is False:
+                env_prev_activated["added_path"] = None
 
         msg = "Deactivated virtualenv."
         logger.info(msg)
         sublime.status_message(msg)
 
     @staticmethod
-    def add_to_path(path_to_add:str) -> bool:
+    def add_to_PATH(path_to_add:str) -> bool:
         """Add path_to_add to PATH."""
 
         current_path:Optional[str] = os.environ.get("PATH")
@@ -302,7 +312,7 @@ class VirtualenvManager:
         return False
 
     @staticmethod
-    def remove_first_occurrence_in_path(path_to_remove:str) -> bool:
+    def remove_first_occurrence_in_PATH(path_to_remove:str) -> bool:
         """Remove first occurence of path_to_remove in PATH."""
 
         is_path_removed = False
@@ -321,15 +331,10 @@ class VirtualenvManager:
                     is_path_removed = True
                     break
 
-        if is_path_removed:
-            os.environ["PATH"] = os.pathsep.join(current_path_items)
+            if is_path_removed:
+                os.environ["PATH"] = os.pathsep.join(current_path_items)
 
         return is_path_removed
-
-    @property
-    def active_environment(self) -> Optional["VirtualEnvInfo"]:
-        """Return the currently active virtual environment."""
-        return self._current_env
 
 # --- OptionalPluginHandler (BEGIN) ------------------------------------------------------------
 
