@@ -27,9 +27,9 @@ logger.handlers.clear() # Remove existing handlers (if any)
 logger.addHandler(handler)
 
 LogLevels = list(logging._nameToLevel.keys())
-Typing_LogLevel = Literal["NOTSET", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+LogLevelType = Literal["NOTSET", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
-def get_normalized_log_level(level: Any) -> Typing_LogLevel:
+def get_normalized_log_level(level: Any) -> LogLevelType:
     """
     Normalize the provided log level to a valid logging level.
 
@@ -37,14 +37,14 @@ def get_normalized_log_level(level: Any) -> Typing_LogLevel:
         level (Union[str, int, None]): The level to validate and normalize.
 
     Returns:
-        Typing_LogLevel: The log level in normalized form ("NOTSET", "DEBUG", etc.).
+        LogLevelType: The log level in normalized form ("NOTSET", "DEBUG", etc.).
     """
     # Ensure level is a string and normalize it
     if isinstance(level, str):
         normalized_level = level.strip().upper()
         if normalized_level in logging._nameToLevel.keys():
             #  We apply the dictionary back and forth to get rid of synonymes in the log levels
-            return cast(Typing_LogLevel,logging._levelToName[logging._nameToLevel[normalized_level]])
+            return cast(LogLevelType,logging._levelToName[logging._nameToLevel[normalized_level]])
 
     # Fallback to "NOTSET" for invalid cases
     return "NOTSET"
@@ -74,7 +74,7 @@ class VirtualenvManager:
 
     _settings_filename:Union[str,None] = None # File name of settings
     _settings:Optional[sublime.Settings] = None # Cache the current settings
-    _log_level:Typing_LogLevel = "INFO" # Cache the current log level
+    _log_level:Union[LogLevelType,None] = None # Cache the current log level
 
     def __new__(cls):
         if cls._instance is None:
@@ -134,21 +134,21 @@ class VirtualenvManager:
 
         # React to the current "log_level" value
         self.on_settings_changed()
-
+        
     def on_settings_changed(self):
         """React to changes in the settings."""
         if self.settings:
-            new_log_level = self.settings.get("log_level", "INFO")  # Default to "INFO"
+            new_log_level:LogLevelType = get_normalized_log_level(self.settings.get("log_level", "INFO"))  # Default to "INFO"
             if new_log_level != self._log_level:
-                normalizedLogLevel = get_normalized_log_level(new_log_level)
-                if normalizedLogLevel is not logging.NOTSET:
+                if new_log_level is not logging.NOTSET:
                     # Change the logging level only if a valid log level is provided
-                    self._log_level = normalizedLogLevel
                     self.handle_log_level_change(new_log_level)
 
-    def handle_log_level_change(self, new_log_level):
+    def handle_log_level_change(self, new_log_level:LogLevelType) -> None:
         """Handle changes to the log level setting."""
-        logger.info(f"Log level changed to: {new_log_level}")
+        if self._log_level is not None:
+            logger.info(f"Log level changed to: {new_log_level}")
+        self._log_level = new_log_level
         logger.setLevel(self._log_level)
 
     @property
@@ -215,11 +215,11 @@ class VirtualenvManager:
 # --- OptionalPluginHandler (BEGIN) ------------------------------------------------------------
 
 if TYPE_CHECKING:
-    from LSP.plugin.core.sessions import Session as Typing_LSP_Session
-    from LSP.plugin.core.protocol import Notification as Typing_LSP_Notification
+    from LSP.plugin.core.sessions import Session as LSPSessionType
+    from LSP.plugin.core.protocol import Notification as LSPNotificationType
 else:
-    Typing_LSP_Session = None       # Fallback to None for runtime
-    Typing_LSP_Notification = None  # Fallback to None for runtime
+    LSPSessionType = None       # Fallback to None for runtime
+    LSPNotificationType = None  # Fallback to None for runtime
 
 class OptionalPluginHandler(ABC):
     """
@@ -270,11 +270,11 @@ class OptionalPluginHandler(ABC):
                         # Cache the class reference
                         self._cached_classes[key] = getattr(module, class_name)
                     except AttributeError:
-                        print(f"Class '{class_name}' not found in module '{module_name}'.")
+                        logger.error(f"Class '{class_name}' not found in module '{module_name}'.")
                         all_available = False
                         self._cached_classes[key] = None
                 else:
-                    print(f"Module '{module_name}' not found.")
+                    logger.error(f"Module '{module_name}' not found.")
                     all_available = False
                     self._cached_classes[key] = None
 
@@ -319,7 +319,7 @@ class LSPPluginHandler(OptionalPluginHandler):
         return windows
 
     @property
-    def Notification(self) -> Type["Typing_LSP_Notification"]:
+    def Notification(self) -> Type["LSPNotificationType"]:
         """Retrieve the Notification class."""
         Notification = self.get_cached_class("LSP.plugin.core.protocol", "Notification")
         if Notification is None:
@@ -345,7 +345,7 @@ class LSP_pyrightPluginHandler(OptionalPluginHandler):
 
 # --- LSP functions (BEGIN) ------------------------------------------------------------
 
-def get_lsp_session()->Optional[Typing_LSP_Session]:
+def get_lsp_session()->Optional[LSPSessionType]:
     """Retrieve the active LSP session for LSP-pyright."""
 
     lsp_plugin_handler = LSPPluginHandler()
@@ -365,7 +365,7 @@ def get_lsp_session()->Optional[Typing_LSP_Session]:
         logger.error("No active LSP-pyright session found.")
         return None
 
-def send_did_change_configuration(session: Typing_LSP_Session, config: dict)->None:
+def send_did_change_configuration(session: LSPSessionType, config: dict)->None:
     """Send a workspace/didChangeConfiguration notification to the LSP server."""
 
     lsp_plugin_handler = LSPPluginHandler()
@@ -399,7 +399,7 @@ def reconfigure_lsp_pyright(python_path:str)->None:
 
 # --- LSP functions (END) ------------------------------------------------------------
 
-# --- 
+# --- ActivateVirtualenvCommand (BEGIN) ----------------------------------------------
 
 class ActivateVirtualenvCommand(sublime_plugin.WindowCommand):
     """Command to list and activate virtual environments."""
@@ -463,6 +463,9 @@ class ActivateVirtualenvCommand(sublime_plugin.WindowCommand):
         sublime.status_message(msg)
         logger.info(msg)
 
+# --- ActivateVirtualenvCommand (END) ----------------------------------------------
+
+# --- DeactivateVirtualenvCommand (BEGIN) ------------------------------------------
 
 class DeactivateVirtualenvCommand(sublime_plugin.WindowCommand):
     """Command to deactivate the current virtual environment."""
@@ -475,3 +478,4 @@ class DeactivateVirtualenvCommand(sublime_plugin.WindowCommand):
 
         manager.deactivate_virtualenv()
             
+# --- DeactivateVirtualenvCommand (END) --------------------------------------------
