@@ -61,7 +61,6 @@ def plugin_loaded():
 
 
 
-
 # --- Virtual Environment Manager (BEGIN) ---------------------------------------------------
 
 class VirtualenvManager:
@@ -90,7 +89,11 @@ class VirtualenvManager:
         os.environ.pop("VIRTUAL_ENV", None)
         sublime.status_message("Deactivated virtualenv.")
 
-    def get_active_environment(self) -> Union[str, None]:
+
+    
+
+    @property
+    def active_environment(self) -> Union[str, None]:
         """Return the currently active virtual environment."""
         return self._current_env
 
@@ -284,6 +287,7 @@ def reconfigure_lsp_pyright(python_path:str)->None:
 class VirtualenvCommand(sublime_plugin.WindowCommand):
     """Base class for handling Python virtual environments."""
 
+    _settings_filename:str # File name of settings
     _settings:Optional[sublime.Settings] = None # Cache the current settings
     _log_level:Typing_LogLevel = "INFO" # Cache the current log level
 
@@ -307,15 +311,23 @@ class VirtualenvCommand(sublime_plugin.WindowCommand):
         
     def settings_filename(self):
         """Compute the settings file key based on the platform."""
+        
+        platform_mapping = {
+            "win": "Windows",
+            "osx": "OSXX",
+            "linux": "Linux"
+        }
+
+        platform = platform_mapping[sublime.platform()]
+
         env_vars = self.window.extract_variables()
-        filename = 'Virtualenv (${platform}).sublime-settings'
-        expanded = sublime.expand_variables(filename, env_vars)
+        filename = f'Virtualenv ({platform}).sublime-settings'
         
         # Ensure expanded is a string
-        if not isinstance(expanded, str):
+        if not isinstance(filename, str):
             raise ValueError("Expanded settings filename must be a string.")
 
-        return expanded
+        return filename
 
     @property
     def settings(self) -> sublime.Settings:
@@ -325,9 +337,9 @@ class VirtualenvCommand(sublime_plugin.WindowCommand):
 
     def load_settings(self):
         """Load the platform-specific plugin settings and set up listeners."""
-        settings_filename = self.settings_filename()
+        self._settings_filename = self.settings_filename()
         # sublime.load_settings() returns a reference to the live settings object managed by Sublime
-        self._settings = sublime.load_settings(settings_filename)
+        self._settings = sublime.load_settings(self._settings_filename)
         
         # Add a listener for changes to the "log_level" setting
         self._settings.clear_on_change("VirtualenvCommand")
@@ -351,11 +363,6 @@ class VirtualenvCommand(sublime_plugin.WindowCommand):
         """Handle changes to the log level setting."""
         logger.info(f"Log level changed to: {new_log_level}")
         logger.setLevel(self._log_level)
-
-    def plugin_loaded(self):
-        # Ensure VirtualenvManager is initialized when the plugin loads
-        print("HELLO")
-        VirtualenvManager()
 
     @property
     def venv_directories(self):
@@ -444,13 +451,22 @@ class ActivateVirtualenvCommand(VirtualenvCommand):
     def run(self):
         """Show a quick panel with available virtual environments."""
         venvs = self.venvs
-        if not venvs:
-            sublime.error_message("No virtual environments found in ~/.virtualenvs.")
-            return
+        panel_items:List[sublime.QuickPanelItem]
+        callback_fct:Callable[[int],None]
+        if venvs:
+            panel_items=[sublime.QuickPanelItem(venv["env"],"<i>"+venv["dir"]+"</i>") for venv in venvs]
+            callback_fct=self.on_select
+        else:
+            panel_items=[sublime.QuickPanelItem("No virtual environments found","<i>Add any directory containing virtual environments to <b>environment_directories</b> in the settings.</i>")]
+            callback_fct=self.open_settings
 
         self.window.show_quick_panel(
-            [sublime.QuickPanelItem(venv["env"],"<i>"+venv["dir"]+"</i>") for venv in venvs], self.on_select, placeholder="Select a virtualenv to activate"
+            panel_items, callback_fct, placeholder="Select a virtualenv to activate"
         )
+
+    def open_settings(self,index):
+        """Opens the Virtualenv user settings file."""
+        sublime.active_window().run_command("open_file", {"file": "${packages}/User/" + self._settings_filename})
 
     def on_select(self, index):
         """Handle selection from the quick panel."""
