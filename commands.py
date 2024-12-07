@@ -19,38 +19,16 @@ class ActivatedVirtualEnvInfo(TypedDict):
     added_path: Optional[str]
     VIRTUAL_ENV: str
 
+LSPPluginType = Literal["LSP-pyright","LSP-basepyright","None"]
+
 # --- Logging functions (BEGIN) ------------------------------------------------------------
 
 # Configure the "Virtualenv" logger directly
 logger = logging.getLogger("Virtualenv")
 logger.setLevel(logging.INFO)  # Set the logging level
-handler = logging.StreamHandler()
-handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
-logger.handlers.clear() # Remove existing handlers (if any)
-logger.addHandler(handler)
 
 LogLevels = list(logging._nameToLevel.keys())
 LogLevelType = Literal["NOTSET", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-
-def get_normalized_log_level(level: Any) -> LogLevelType:
-    """
-    Normalize the provided log level to a valid logging level.
-
-    Args:
-        level (Union[str, int, None]): The level to validate and normalize.
-
-    Returns:
-        LogLevelType: The log level in normalized form ("NOTSET", "DEBUG", etc.).
-    """
-    # Ensure level is a string and normalize it
-    if isinstance(level, str):
-        normalized_level = level.strip().upper()
-        if normalized_level in logging._nameToLevel.keys():
-            #  We apply the dictionary back and forth to get rid of synonymes in the log levels
-            return cast(LogLevelType,logging._levelToName[logging._nameToLevel[normalized_level]])
-
-    # Fallback to "NOTSET" for invalid cases
-    return "NOTSET"
 
 # --- Logging functions (END) ---------------------------------------------------------------
 
@@ -72,11 +50,12 @@ class VirtualenvManager:
     """Singleton class to manage virtual environments in Sublime Text."""
 
     _instance:Optional["VirtualenvManager"] = None  # Class-level variable to store the singleton instance
-    _activated_envs:List["ActivatedVirtualEnvInfo"]  # Tracks the active virtual environment
+    _activated_envs:List["ActivatedVirtualEnvInfo"] = [] # Tracks the active virtual environment
 
     _settings_filename:Optional[str] = None # File name of settings
     _settings:Optional[sublime.Settings] = None # Cache the current settings
     _log_level:Optional[LogLevelType] = None # Cache the current log level
+    _LSP_plugin:Optional["LSPPluginType"] = None # Cache the selected LSP plugin
 
     def __new__(cls):
         if cls._instance is None:
@@ -89,7 +68,14 @@ class VirtualenvManager:
         """Initialize the class."""
 
         # Load settings
-        self.load_settings()
+        self._settings = self.load_settings()
+        
+        # Add a listener for changes to the "log_level" setting
+        self._settings.clear_on_change("VirtualenvCommand")
+        self._settings.add_on_change("VirtualenvCommand", self.on_settings_changed)
+
+        # React to the current "log_level" value
+        self.on_settings_changed()
 
         # Initialize active environment info
         if "VIRTUAL_ENV" in os.environ:
@@ -133,34 +119,86 @@ class VirtualenvManager:
             raise RuntimeError("Unexpected error where Settings was not loaded")
         return self._settings
 
-    def load_settings(self) -> None:
+    def load_settings(self) -> sublime.Settings:
         """Load the platform-specific plugin settings and set up listeners."""
         
         # sublime.load_settings() returns a reference to the live settings object managed by Sublime
-        self._settings = sublime.load_settings(self.settings_filename)
-        
-        # Add a listener for changes to the "log_level" setting
-        self._settings.clear_on_change("VirtualenvCommand")
-        self._settings.add_on_change("VirtualenvCommand", self.on_settings_changed)
+        return sublime.load_settings(self.settings_filename)
 
-        # React to the current "log_level" value
-        self.on_settings_changed()
+    @staticmethod
+    def validate_LSP_plugin(LSP_plugin: Any) -> LSPPluginType:
+        if not isinstance(LSP_plugin,str):
+            return "None"
+
+        valid_LSP_plugins = ["LSP-pyright","LSP-basepyright","None"]
+        if LSP_plugin in valid_LSP_plugins:
+            return cast(LSPPluginType,LSP_plugin)
+        else:
+            return "None"
+
+    @staticmethod
+    def validate_log_level(level: Any) -> LogLevelType:
+        """
+        Normalize the provided log level to a valid logging level.
+
+        Args:
+            level (Union[str, int, None]): The level to validate and normalize.
+
+        Returns:
+            LogLevelType: The log level in normalized form ("NOTSET", "DEBUG", etc.).
+        """
+        # Ensure level is a string and normalize it
+        if isinstance(level, str):
+            normalized_level = level.strip().upper()
+            if normalized_level in logging._nameToLevel.keys():
+                #  We apply the dictionary back and forth to get rid of synonymes in the log levels
+                return cast(LogLevelType,logging._levelToName[logging._nameToLevel[normalized_level]])
+
+        # Fallback to "NOTSET" for invalid cases
+        return "NOTSET"
 
     def on_settings_changed(self) -> None:
         """React to changes in the settings."""
-        if self.settings:
-            new_log_level:LogLevelType = get_normalized_log_level(self.settings.get("log_level", "INFO"))  # Default to "INFO"
-            if new_log_level != self._log_level:
-                if new_log_level is not logging.NOTSET:
-                    # Change the logging level only if a valid log level is provided
-                    self.handle_log_level_change(new_log_level)
+
+        # Load settings
+        self._settings = self.load_settings()
+        
+        new_log_level:LogLevelType = self.validate_log_level(self.settings.get("LOG_level", "INFO"))  # Default to "INFO"        
+        if new_log_level != self._log_level:
+            if new_log_level is not logging.NOTSET:
+                # Change the logging level only if a valid log level is provided
+                self.handle_log_level_change(new_log_level)
+
+        new_LSP_plugin = self.validate_LSP_plugin(self.settings.get("LSP_plugin", "None"))
+        if new_LSP_plugin != self._LSP_plugin:
+            self.handle_LSP_plugin_change(new_LSP_plugin)
 
     def handle_log_level_change(self, new_log_level:LogLevelType) -> None:
         """Handle changes to the log level setting."""
+        
         if self._log_level is not None:
             logger.info(f"Log level changed to: {new_log_level}")
         self._log_level = new_log_level
         logger.setLevel(self._log_level)
+
+    def handle_LSP_plugin_change(self,new_LSP_plugin:LSPPluginType) -> None:
+        """Handle changes to the LSP plugin setting."""
+
+        if self._LSP_plugin is not None:
+            logger.info(f"LSP plugin changed to: {new_LSP_plugin}")
+
+        self._LSP_plugin = new_LSP_plugin
+
+        # Load the last activated environment
+        if len(self._activated_envs) == 0:
+            return
+        active_env = self._activated_envs[-1]
+
+        # Create python path
+        pythonPath = self.get_python_path(self.get_bin_path(active_env["VIRTUAL_ENV"]))
+
+        # Notify the LSP plugin
+        self.notify_LSP(pythonPath)
 
     @property
     def venv_directories(self) -> List[str]:
@@ -203,6 +241,14 @@ class VirtualenvManager:
 
         return environments
 
+    @staticmethod
+    def get_bin_path(venv_path:str) -> str:
+        return os.path.join(venv_path, "Scripts" if sublime.platform == "win" else "bin")
+
+    @staticmethod
+    def get_python_path(venv_bin_path:str) -> str:
+        return os.path.join(venv_bin_path,'python')
+
     def activate_virtualenv(self,selected_venv:"VirtualEnvInfo") -> None:
         
         venv_path = os.path.join(selected_venv['dir'], selected_venv['env'])
@@ -214,7 +260,7 @@ class VirtualenvManager:
         env = selected_venv["env"]
 
         # Path to be added
-        venv_bin_path = os.path.join(venv_path, "Scripts" if sublime.platform == "win" else "bin")
+        venv_bin_path = self.get_bin_path(venv_path)
 
         # Remove from PATH the path of previously activated environment
         if len(self._activated_envs)>0:
@@ -239,7 +285,7 @@ class VirtualenvManager:
         })
 
         # Python path
-        pythonPath = os.path.join(venv_bin_path,'python')
+        pythonPath = self.get_python_path(venv_bin_path)
 
         # Notify the LSP plugin
         self.notify_LSP(pythonPath)
@@ -248,14 +294,19 @@ class VirtualenvManager:
         sublime.status_message(msg)
         logger.info(msg)
 
-    def notify_LSP(self,pythonPath:str):
+    def notify_LSP(self,pythonPath:str) -> None:
         """Notify the LSP plugin that a virtual environment has been activated."""
 
-        lsp_pyright_plugin_handler = LSP_pyrightPluginHandler()
-        print(lsp_pyright_plugin_handler)
+        if self._LSP_plugin is None:
+            return
 
+        if self._LSP_plugin == "None":
+            return
+
+        lsp_pyright_plugin_handler = LSP_pythonPluginHandler(self._LSP_plugin)
+        
         if lsp_pyright_plugin_handler.is_plugin_available:
-            reconfigure_lsp_pyright(pythonPath)
+            reconfigure_lsp_pyright(self._LSP_plugin,pythonPath)
         
     def deactivate_virtualenv(self) -> None:
         """Clear the virtual environment from the environment variables."""
@@ -451,17 +502,32 @@ class LSPPluginHandler(OptionalPluginHandler):
             raise RuntimeError("Notification not found in LSP.plugin.core.protocol")
         return Notification
 
-class LSP_pyrightPluginHandler(OptionalPluginHandler):
+class LSP_pythonPluginHandler(OptionalPluginHandler):
     """
     Concrete implementation for handling the LSP plugin.
     """
+    _LSP_plugin: Optional[str]
+
+    def __init__(self,LSP_plugin:LSPPluginType):
+        self._LSP_plugin = LSP_plugin
+
     @property
     def required_members(self) -> List[Dict[str, str]]:
-        return [
-            {"member": "LspPyrightCreateConfigurationCommand", "module": "LSP-pyright.plugin"},
-        ]
+        if self._LSP_plugin == "LSP-pyright":
+            return [
+                {"member": "LspPyrightCreateConfigurationCommand", "module": "LSP-pyright.plugin"},
+            ]
+        elif self._LSP_plugin == "LSP-basepyright":
+            return [
+                {"member": "LspBasedpyrightCreateConfigurationCommand", "module": "LSP-basepyright.plugin"},
+            ]
+        else:
+            return []
 
     def is_plugin_available(self) -> bool:
+        if self._LSP_plugin == "None":
+            return False
+
         # Check that both plugins are available, LSP and LSP-pyright
         lsp_plugin_handler = LSPPluginHandler()
         return lsp_plugin_handler.is_plugin_available and super().is_plugin_available
@@ -470,7 +536,7 @@ class LSP_pyrightPluginHandler(OptionalPluginHandler):
 
 # --- LSP functions (BEGIN) ------------------------------------------------------------
 
-def get_lsp_session()->Optional[LSPSessionType]:
+def get_lsp_session(LSP_plugin:LSPPluginType)->Optional[LSPSessionType]:
     """Retrieve the active LSP session for LSP-pyright."""
 
     lsp_plugin_handler = LSPPluginHandler()
@@ -483,11 +549,12 @@ def get_lsp_session()->Optional[LSPSessionType]:
         logger.error("No LSP window context found.")
         return None
 
-    session = lsp_window.get_session("LSP-pyright", "syntax")
+    # TODO: This fails and always returns None
+    session = lsp_window.get_session(LSP_plugin, "syntax")
     if session is not None:
         return session
     else:
-        logger.error("No active LSP-pyright session found.")
+        logger.error(f"No active {LSP_plugin} session found.")
         return None
 
 def send_did_change_configuration(session: LSPSessionType, config: dict)->None:
@@ -500,10 +567,10 @@ def send_did_change_configuration(session: LSPSessionType, config: dict)->None:
     notification = Notification("workspace/didChangeConfiguration", params)
     session.send_notification(notification)
 
-def reconfigure_lsp_pyright(python_path:str)->None:
+def reconfigure_lsp_pyright(LSP_plugin:LSPPluginType, python_path:str)->None:
     """Trigger the workspace/configuration request to update LSP-pyright."""
 
-    session = get_lsp_session()
+    session = get_lsp_session(LSP_plugin)
     if not session:
         return
 

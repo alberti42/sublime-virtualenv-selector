@@ -3,11 +3,16 @@
     // this python executable is used in order to ...
     "executable": "python3",
 
-    "log_level": "INFO",
+    // Python LSP plugin {"LSP-pyright","LSP-basepyright","None"}
+    "LSP_plugin": "LSP-basepyright",
+
+    // Log level {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+    "LOG_level": "INFO",
 
     // Directory in which the virtualenvs are stored
     // Default location is the user's home directory
     "environment_directories": [
-    	"~/.virtualenvs"
+    	"~/.virtualenvs",
+        "~/.pyenv"
     ]
 }
