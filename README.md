@@ -5,7 +5,7 @@ This is a plugin for Sublime Text that provides a simple and efficient way to ma
 - **List available virtual environments**: Automatically detects virtual environments in specified directories.
 - **Activate a virtual environment**: Updates the environment variables and adds the selected virtual environment to the `PATH`.
 - **Deactivate the current virtual environment**: Restores the system environment to its original state.
-- **Integration with LSP-pyright and LSP-basepyright**: Attempts to notify the LSP language server about the active virtual environment, enabling better Python language support.
+- **Integration with LSP-pyright and LSP-basedpyright**: Attempts to notify the LSP language server about the active virtual environment, enabling better Python language support.
 
 ## Features
 
@@ -17,7 +17,7 @@ This is a plugin for Sublime Text that provides a simple and efficient way to ma
 ## Requirements
 
 - Sublime Text 4
-- [LSP-pyright](https://github.com/sublimelsp/LSP-pyright) (optional, for enhanced Python language support)
+- [LSP-pyright](https://github.com/sublimelsp/LSP-pyright) or [LSP-basedpyright](https://github.com/sublimelsp/LSP-basedpyright) (optional, for enhanced Python language support) 
 - Python installed on your system
 
 ## Installation
@@ -66,3 +66,10 @@ Contributions are welcome! Feel free to open issues or submit pull requests to e
 ## License
 
 This plugin is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.
+
+## Author
+- **Author:** Andrea Alberti
+- **GitHub Profile:** [alberti42](https://github.com/alberti42)
+- **Donations:** [![Buy Me a Coffee](https://img.shields.io/badge/Donate-Buy%20Me%20a%20Coffee-orange)](https://buymeacoffee.com/alberti)
+
+Feel free to contribute to the development of this plugin or report any issues in the [GitHub repository](https://github.com/alberti42/sublime-virtualenv/issues).

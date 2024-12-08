@@ -1,4 +1,3 @@
-from optparse import Option
 from LSP.plugin.core.windows import WindowRegistry
 import sublime
 import sublime_plugin
@@ -19,7 +18,7 @@ class ActivatedVirtualEnvInfo(TypedDict):
     added_path: Optional[str]
     VIRTUAL_ENV: str
 
-LSPPluginType = Literal["LSP-pyright","LSP-basepyright","None"]
+LSPPluginType = Literal["LSP-pyright","LSP-basedpyright","None"]
 
 # --- Logging functions (BEGIN) ------------------------------------------------------------
 
@@ -129,7 +128,7 @@ class VirtualenvManager:
     def validate_LSP_plugin(LSP_plugin: Any) -> Optional[LSPPluginType]:
         """Validate setting LSP_plugin."""
 
-        valid_LSP_plugins = ["LSP-pyright","LSP-basepyright","None"]
+        valid_LSP_plugins = ["LSP-pyright","LSP-basedpyright","None"]
         
         if isinstance(LSP_plugin,str):
             if LSP_plugin in valid_LSP_plugins:
@@ -520,9 +519,9 @@ class LSP_pythonPluginHandler(OptionalPluginHandler):
             return [
                 {"member": "LspPyrightCreateConfigurationCommand", "module": "LSP-pyright.plugin"},
             ]
-        elif self._LSP_plugin == "LSP-basepyright":
+        elif self._LSP_plugin == "LSP-basedpyright":
             return [
-                {"member": "LspBasedpyrightCreateConfigurationCommand", "module": "LSP-basepyright.plugin"},
+                {"member": "LspBasedpyrightCreateConfigurationCommand", "module": "LSP-basedpyright.plugin"},
             ]
         else:
             return []

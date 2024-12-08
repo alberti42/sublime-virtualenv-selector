@@ -3,7 +3,7 @@
     // this python executable is used in order to ...
     "executable": "python3",
 
-    // Python LSP plugin {"LSP-pyright","LSP-basepyright","None"}
+    // Python LSP plugin {"LSP-pyright","LSP-basedpyright","None"}
     "LSP_plugin": "None",
 
     // Log level {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
