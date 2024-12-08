@@ -5,7 +5,7 @@ This is a plugin for Sublime Text that provides a simple and efficient way to ma
 - **List available virtual environments**: Automatically detects virtual environments in specified directories.
 - **Activate a virtual environment**: Updates the environment variables and adds the selected virtual environment to the `PATH`.
 - **Deactivate the current virtual environment**: Restores the system environment to its original state.
-- **Integration with LSP-pyright**: Attempts to notify the LSP-pyright language server about the active virtual environment, enabling better Python language support.
+- **Integration with LSP-pyright and LSP-basepyright**: Attempts to notify the LSP language server about the active virtual environment, enabling better Python language support.
 
 ## Features
 
