@@ -114,6 +114,7 @@ class VirtualenvManager:
 
     @property
     def settings(self) -> sublime.Settings:
+        """Return self._settings and check that it is correctly configured."""
         if self._settings is None:
             raise RuntimeError("Unexpected error where Settings was not loaded")
         return self._settings
@@ -125,51 +126,54 @@ class VirtualenvManager:
         return sublime.load_settings(self.settings_filename)
 
     @staticmethod
-    def validate_LSP_plugin(LSP_plugin: Any) -> LSPPluginType:
-        if not isinstance(LSP_plugin,str):
-            return "None"
+    def validate_LSP_plugin(LSP_plugin: Any) -> Optional[LSPPluginType]:
+        """Validate setting LSP_plugin."""
 
         valid_LSP_plugins = ["LSP-pyright","LSP-basepyright","None"]
-        if LSP_plugin in valid_LSP_plugins:
-            return cast(LSPPluginType,LSP_plugin)
-        else:
-            return "None"
+        
+        if isinstance(LSP_plugin,str):
+            if LSP_plugin in valid_LSP_plugins:
+                return cast(LSPPluginType,LSP_plugin)
+    
+        # Fallback to "NOTSET" for invalid cases
+        logger.warning(f"Invalid LSP_plugin setting: {LSP_plugin}")
+        return None
 
     @staticmethod
-    def validate_log_level(level: Any) -> LogLevelType:
+    def validate_log_level(level: Any) -> Optional[LogLevelType]:
         """
         Normalize the provided log level to a valid logging level.
 
         Args:
-            level (Union[str, int, None]): The level to validate and normalize.
+            level (Any): The level to validate and normalize.
 
         Returns:
-            LogLevelType: The log level in normalized form ("NOTSET", "DEBUG", etc.).
+            LogLevelType: The log level in normalized form ("DEBUG", "INFO", etc.).
         """
-        # Ensure level is a string and normalize it
-        if isinstance(level, str):
-            normalized_level = level.strip().upper()
-            if normalized_level in logging._nameToLevel.keys():
-                #  We apply the dictionary back and forth to get rid of synonymes in the log levels
-                return cast(LogLevelType,logging._levelToName[logging._nameToLevel[normalized_level]])
+        
+        valid_log_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 
-        # Fallback to "NOTSET" for invalid cases
-        return "NOTSET"
+        # Ensure level is a string
+        if isinstance(level, str):
+            if level in valid_log_levels:
+                #  We apply the dictionary back and forth to get rid of synonymes in the log levels
+                return cast(LogLevelType,logging._levelToName[logging._nameToLevel[level]])
+
+        # Fallback to None for invalid cases
+        logger.warning(f"Invalid log_level setting: {level}")
+        return None
 
     def on_settings_changed(self) -> None:
         """React to changes in the settings."""
 
-        # Load settings
-        self._settings = self.load_settings()
-        
-        new_log_level:LogLevelType = self.validate_log_level(self.settings.get("LOG_level", "INFO"))  # Default to "INFO"        
-        if new_log_level != self._log_level:
+        new_log_level:Optional[LogLevelType] = self.validate_log_level(self.settings.get("log_level"))  # Default to "INFO"
+        if new_log_level and new_log_level != self._log_level:
             if new_log_level is not logging.NOTSET:
                 # Change the logging level only if a valid log level is provided
                 self.handle_log_level_change(new_log_level)
 
-        new_LSP_plugin = self.validate_LSP_plugin(self.settings.get("LSP_plugin", "None"))
-        if new_LSP_plugin != self._LSP_plugin:
+        new_LSP_plugin:Optional[LSPPluginType] = self.validate_LSP_plugin(self.settings.get("LSP_plugin"))
+        if new_LSP_plugin and new_LSP_plugin != self._LSP_plugin:
             self.handle_LSP_plugin_change(new_LSP_plugin)
 
     def handle_log_level_change(self, new_log_level:LogLevelType) -> None:

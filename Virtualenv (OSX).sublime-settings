@@ -4,7 +4,7 @@
     "executable": "python3",
 
     // Python LSP plugin {"LSP-pyright","LSP-basepyright","None"}
-    "LSP_plugin": "LSP-basepyright",
+    "LSP_plugin": "None",
 
     // Log level {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
     "LOG_level": "INFO",
