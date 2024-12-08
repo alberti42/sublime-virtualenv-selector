@@ -1,8 +1,5 @@
 // Default OSX settings for sublime-text-virtualenv:
 {
-    // this python executable is used in order to ...
-    "executable": "python3",
-
     // Python LSP plugin {"LSP-pyright","LSP-basedpyright","None"}
     "LSP_plugin": "None",
 

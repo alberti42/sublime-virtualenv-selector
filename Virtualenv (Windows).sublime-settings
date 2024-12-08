@@ -1,10 +1,7 @@
 // Default Windows settings for sublime-text-virtualenv:
 {
-    // this python executable is used in order to ...
-    "executable": "python3",
-
     // Python LSP plugin {"LSP-pyright","LSP-basedpyright","None"}
-    "LSP_plugin": "LSP-basedpyright",
+    "LSP_plugin": "None",
 
     // Log level {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
     "LOG_level": "INFO",
