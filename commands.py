@@ -84,7 +84,7 @@ class VirtualenvManager:
             }]
         else:
             self._activated_envs = []
-        
+
     @property
     def settings_filename(self) -> str:
         """Compute the settings file key based on the platform."""
@@ -131,6 +131,8 @@ class VirtualenvManager:
         valid_LSP_plugins = ["LSP-pyright","LSP-basedpyright","None"]
         
         if isinstance(LSP_plugin,str):
+            if LSP_plugin == "None":
+                return None
             if LSP_plugin in valid_LSP_plugins:
                 return cast(LSPPluginType,LSP_plugin)
     
@@ -302,9 +304,6 @@ class VirtualenvManager:
         if self._LSP_plugin is None:
             return
 
-        if self._LSP_plugin == "None":
-            return
-
         lsp_pyright_plugin_handler = LSP_pythonPluginHandler(self._LSP_plugin)
         
         if lsp_pyright_plugin_handler.is_plugin_available:
@@ -314,6 +313,7 @@ class VirtualenvManager:
         """Clear the virtual environment from the environment variables."""
 
         if len(self._activated_envs)==0:
+            logger.debug("No venv to be deactivated")
             return
 
         # Environment to deactivate, remove it from the queue
@@ -322,6 +322,7 @@ class VirtualenvManager:
         # Last activated environment
         env_prev_activated = Optional[ActivatedVirtualEnvInfo]
         if len(self._activated_envs)>0:
+            logger.debug(f'venv {self._activated_envs[-1]["env"]} found that was previously activated')
             env_prev_activated = self._activated_envs[-1]
         else:
             env_prev_activated = None
@@ -333,14 +334,22 @@ class VirtualenvManager:
         # Restore the VIRTUAL_ENV variable
         if env_prev_activated:
             os.environ["VIRTUAL_ENV"] = env_prev_activated["VIRTUAL_ENV"]
+            logger.debug(f'Updated VIRTUAL_ENV: {env_prev_activated["VIRTUAL_ENV"]}')
         else:
             os.environ.pop("VIRTUAL_ENV",None)
+            logger.debug("Removed VIRTUAL_ENV variable")
 
         # Restore the old added path
         if env_prev_activated and env_prev_activated["added_path"]:
             was_path_added = self.add_to_PATH(env_prev_activated["added_path"])
             if was_path_added is False:
                 env_prev_activated["added_path"] = None
+    
+        # Create python path
+        pythonPath = self.get_python_path(self.get_bin_path(env_prev_activated["VIRTUAL_ENV"])) if env_prev_activated else ""
+
+        # Notify the LSP plugin
+        self.notify_LSP(pythonPath)
 
         msg = "Deactivated virtualenv."
         logger.info(msg)
@@ -539,7 +548,7 @@ class LSP_pythonPluginHandler(OptionalPluginHandler):
 # --- LSP functions (BEGIN) ------------------------------------------------------------
 
 def get_lsp_session(LSP_plugin:LSPPluginType)->Optional[LSPSessionType]:
-    """Retrieve the active LSP session for LSP-pyright."""
+    """Retrieve the active LSP session for the LSP plugin {LSP-pyright or LSP-basedpyright}."""
 
     lsp_plugin_handler = LSPPluginHandler()
     LSP_windows = lsp_plugin_handler.windows
@@ -551,13 +560,12 @@ def get_lsp_session(LSP_plugin:LSPPluginType)->Optional[LSPSessionType]:
         logger.error("No LSP window context found.")
         return None
 
-    # TODO: This fails and always returns None
-    session = lsp_window.get_session(LSP_plugin, "syntax")
-    if session is not None:
-        return session
-    else:
+    session:Optional[LSPSessionType] = lsp_window.get_session(LSP_plugin, "syntax")
+    if session is None:
         logger.error(f"No active {LSP_plugin} session found.")
         return None
+    else:
+        return session
 
 def send_did_change_configuration(session: LSPSessionType, config: dict)->None:
     """Send a workspace/didChangeConfiguration notification to the LSP server."""
@@ -580,14 +588,14 @@ def reconfigure_lsp_pyright(LSP_plugin:LSPPluginType, python_path:str)->None:
     new_config = {
         "python": {
             "pythonPath": python_path,
-            "analysis": {
-                "typeCheckingMode": "basic",
-                "reportOptionalSubscript": "error"
-            }
+            # "analysis": {
+            #     "typeCheckingMode": "basic",
+            #     "reportOptionalSubscript": "error"
+            # }
         }
     }
 
-    logger.debug(f"NEW CONFIG: {new_config}")
+    logger.debug(f"pythonPath: {python_path}")
     
     send_did_change_configuration(session, new_config)
 
