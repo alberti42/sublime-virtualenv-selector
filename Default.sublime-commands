@@ -1,4 +1,4 @@
 [
-    { "caption": "Virtualenv: Activate Environment", "command": "activate_virtualenv" },
-    { "caption": "Virtualenv: Deactivate Environment", "command": "deactivate_virtualenv" },
+    { "caption": "Virtualenv Selector: Activate", "command": "select_virtualenv" },
+    { "caption": "Virtualenv Selector: Deactivate", "command": "deselect_virtualenv" },
 ]

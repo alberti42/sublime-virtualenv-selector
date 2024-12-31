@@ -1,6 +1,9 @@
-# Virtualenv Selector for Sublime Text
+Virtualenv Selector for Sublime Text
+====================================
 
-This is a plugin for Sublime Text that provides a simple and efficient way to select Python virtual environments directly from the editor. The plugin allows you to:
+Select your Python virtual environments directly from Sublime Text.
+
+This is a plugin for Sublime Text that provides a simple way to select Python virtual environments directly from the editor. The plugin allows you to:
 
 - **List available virtual environments**: Automatically detects virtual environments in specified directories.
 - **Activate a virtual environment**: Updates the environment variables and adds the selected virtual environment to the `PATH`.
@@ -10,7 +13,7 @@ This is a plugin for Sublime Text that provides a simple and efficient way to se
 ## Features
 
 1. **Quick Panel Selection**: Use a quick panel to select and activate a virtual environment.
-2. **Customizable Directories**: Configure directories to search for virtual environments in the `Virtualenv.sublime-settings` file.
+2. **Customizable Directories**: Configure directories to search for virtual environments in the `Virtualenv Selector (PLATFORM).sublime-settings` file.
 3. **Automatic PATH Update**: Updates the `PATH` environment variable to include the selected virtual environment.
 4. **Basic LSP-pyright Integration**: Notifies LSP-pyright when the virtual environment changes, though full automatic integration with LSP-pyright is not yet functional.
 
@@ -33,18 +36,18 @@ This is a plugin for Sublime Text that provides a simple and efficient way to se
 ### Activating a Virtual Environment
 
 1. Open the Command Palette (`Ctrl+Shift+P` or `Cmd+Shift+P` on macOS).
-2. Run the command `Virtualenv: Activate Virtual Environment`.
+2. Run the command `Virtualenv Selector: Activate`.
 3. Select a virtual environment from the list.
 
 ### Deactivating a Virtual Environment
 
 1. Open the Command Palette.
-2. Run the command `Virtualenv: Deactivate Virtual Environment`.
+2. Run the command `Virtualenv Selector: Deactivate`.
 
 ### Configuring Virtual Environment Directories
 
-1. Open the `Virtualenv.sublime-settings` file:
-   - From the Command Palette, run `Preferences: Virtualenv Settings`.
+1. Open the `Virtualenv Selector (PLATFORM).sublime-settings` file:
+   - From the Command Palette, run `Preferences: Virtualenv Selector Settings`.
 2. Add or modify the `environment_directories` setting to include paths where your virtual environments are located. For example:
    ```
    {

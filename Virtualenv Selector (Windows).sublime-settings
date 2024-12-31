@@ -1,4 +1,4 @@
-// Default Windows settings for sublime-text-virtualenv:
+// Default Windows settings for sublime-virtualenv-selector: 
 {
     // Python LSP plugin {"LSP-pyright","LSP-basedpyright","None"}
     "LSP_plugin": "None",

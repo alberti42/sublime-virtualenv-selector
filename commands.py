@@ -9,11 +9,11 @@ import logging
 
 # --- Type checking -------------------------------------------------------------------------
 
-class VirtualEnvInfo(TypedDict):
+class VirtualenvSelectorInfo(TypedDict):
     env: str
     dir: str
 
-class ActivatedVirtualEnvInfo(TypedDict):
+class ActivatedVirtualenvSelectorInfo(TypedDict):
     env: Optional[str]
     added_path: Optional[str]
     VIRTUAL_ENV: str
@@ -23,7 +23,7 @@ LSPPluginType = Literal["LSP-pyright","LSP-basedpyright","None"]
 # --- Logging functions (BEGIN) ------------------------------------------------------------
 
 # Configure the "Virtualenv" logger directly
-logger = logging.getLogger("Virtualenv")
+logger = logging.getLogger("VirtualenvSelector")
 
 LogLevels = list(logging._nameToLevel.keys())
 LogLevelType = Literal["NOTSET", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -34,21 +34,21 @@ LogLevelType = Literal["NOTSET", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"
 # --- Loading/unloading the plugin (BEGIN) --------------------------------------------------
 
 def plugin_loaded() -> None:
-    """Initialize the plugin by loading the Virtual Environment Manager."""
+    """Initialize the plugin by loading the Virtual Environment Selector"""
 
-    # Create a singleton instance of VirtualenvManager
-    VirtualenvManager()
+    # Create a singleton instance of VirtualenvSelector
+    VirtualenvSelector()
 
 # --- Loading/unloading the plugin (END) ----------------------------------------------------
 
 
-# --- Virtual Environment Manager (BEGIN) ---------------------------------------------------
+# --- Virtual Environment Selector (BEGIN) ---------------------------------------------------
 
-class VirtualenvManager:
+class VirtualenvSelector:
     """Singleton class to manage virtual environments in Sublime Text."""
 
-    _instance:Optional["VirtualenvManager"] = None  # Class-level variable to store the singleton instance
-    _activated_envs:List["ActivatedVirtualEnvInfo"] = [] # Tracks the active virtual environment
+    _instance:Optional["VirtualenvSelector"] = None  # Class-level variable to store the singleton instance
+    _activated_envs:List["ActivatedVirtualenvSelectorInfo"] = [] # Tracks the active virtual environment
 
     _settings_filename:Optional[str] = None # File name of settings
     _settings:Optional[sublime.Settings] = None # Cache the current settings
@@ -69,8 +69,8 @@ class VirtualenvManager:
         self._settings = self.load_settings()
         
         # Add a listener for changes to the "log_level" setting
-        self._settings.clear_on_change("VirtualenvCommand")
-        self._settings.add_on_change("VirtualenvCommand", self.on_settings_changed)
+        self._settings.clear_on_change("VirtualenvSelector")
+        self._settings.add_on_change("VirtualenvSelector", self.on_settings_changed)
 
         # React to the current "log_level" value
         self.on_settings_changed()
@@ -100,7 +100,7 @@ class VirtualenvManager:
 
         platform = platform_mapping[sublime.platform()]
 
-        filename = f'Virtualenv ({platform}).sublime-settings'
+        filename = f'Virtualenv Selector ({platform}).sublime-settings'
         
         # Ensure expanded is a string
         if not isinstance(filename, str):
@@ -221,9 +221,9 @@ class VirtualenvManager:
 
         return validated_directories
 
-    def get_venvs(self,window:sublime.Window) -> List["VirtualEnvInfo"]:
+    def get_venvs(self,window:sublime.Window) -> List["VirtualenvSelectorInfo"]:
         """List all virtual environments in the venv directories."""
-        environments: List["VirtualEnvInfo"] = []
+        environments: List["VirtualenvSelectorInfo"] = []
 
         # Add virtual environments from the configured directories
         for directory in self.venv_directories:
@@ -253,11 +253,11 @@ class VirtualenvManager:
     def get_python_path(venv_bin_path:str) -> str:
         return os.path.join(venv_bin_path,'python')
 
-    def activate_virtualenv(self,selected_venv:"VirtualEnvInfo") -> None:
+    def activate_virtualenv(self,selected_venv:"VirtualenvSelectorInfo") -> None:
         
         venv_path = os.path.join(selected_venv['dir'], selected_venv['env'])
         if not os.path.exists(venv_path):
-            sublime.error_message(f"Virtualenv '{venv_path}' does not exist.")
+            sublime.error_message(f"Virtualenv Selector '{venv_path}' does not exist.")
             return
 
         # Keep track of the added environment name
@@ -320,7 +320,7 @@ class VirtualenvManager:
         env_to_be_deactivated = self._activated_envs.pop()
 
         # Last activated environment
-        env_prev_activated = Optional[ActivatedVirtualEnvInfo]
+        env_prev_activated = Optional[ActivatedVirtualenvSelectorInfo]
         if len(self._activated_envs)>0:
             logger.debug(f'venv {self._activated_envs[-1]["env"]} found that was previously activated')
             env_prev_activated = self._activated_envs[-1]
@@ -601,22 +601,22 @@ def reconfigure_lsp_pyright(LSP_plugin:LSPPluginType, python_path:str)->None:
 
 # --- LSP functions (END) ------------------------------------------------------------
 
-# --- ActivateVirtualenvCommand (BEGIN) ----------------------------------------------
+# --- SelectVirtualenvCommand (BEGIN) ----------------------------------------------
 
-class ActivateVirtualenvCommand(sublime_plugin.WindowCommand):
+class SelectVirtualenvCommand(sublime_plugin.WindowCommand):
     """Command to list and activate virtual environments."""
 
-    _venvs:Optional[List["VirtualEnvInfo"]] = None
-    _manager:Optional["VirtualenvManager"] = None
+    _venvs:Optional[List["VirtualenvSelectorInfo"]] = None
+    _selector:Optional["VirtualenvSelector"] = None
 
     def run(self) -> None:
         """Show a quick panel with available virtual environments."""
 
-        # Load the Virtual Environment Manager
-        self._manager = VirtualenvManager()
+        # Load the Virtual Environment Selector
+        self._selector = VirtualenvSelector()
 
         # Get the list of available virtual environments
-        self._venvs = self._manager.get_venvs(self.window)
+        self._venvs = self._selector.get_venvs(self.window)
 
         panel_items:List[sublime.QuickPanelItem]
         if self._venvs:
@@ -633,31 +633,31 @@ class ActivateVirtualenvCommand(sublime_plugin.WindowCommand):
         if index == -1:
             return
         
-        if self._manager is None:
-            raise RuntimeError("Unexpected error: VirtualenvManager not loaded") 
+        if self._selector is None:
+            raise RuntimeError("Unexpected error: Virtualenv Selector not loaded") 
 
         if self._venvs is None:
-            # If no virtual environments were found, opens the Virtualenv user settings file
-            sublime.active_window().run_command("open_file", {"file": "${packages}/User/" + self._manager.settings_filename})
+            # If no virtual environments were found, opens the Virtualenv Selector user settings file
+            sublime.active_window().run_command("open_file", {"file": "${packages}/User/" + self._selector.settings_filename})
             return
         
         selected_venv = self._venvs[index]
 
-        # Notify the manager of activation of venv
-        self._manager.activate_virtualenv(selected_venv)
+        # Notify the selector of activation of venv
+        self._selector.activate_virtualenv(selected_venv)
 
 
-# --- ActivateVirtualenvCommand (END) ----------------------------------------------
+# --- SelectVirtualenvCommand (END) ----------------------------------------------
 
-# --- DeactivateVirtualenvCommand (BEGIN) ------------------------------------------
+# --- DeselectVirtualenvCommand (BEGIN) ------------------------------------------
 
-class DeactivateVirtualenvCommand(sublime_plugin.WindowCommand):
+class DeselectVirtualenvCommand(sublime_plugin.WindowCommand):
     """Command to deactivate the current virtual environment."""
 
     def run(self):
         """Deactivate the currently active virtual environment."""
         
         # Deactive the virtual environment
-        VirtualenvManager().deactivate_virtualenv()
+        VirtualenvSelector().deactivate_virtualenv()
             
-# --- DeactivateVirtualenvCommand (END) --------------------------------------------
+# --- DeselectVirtualenvCommand (END) --------------------------------------------

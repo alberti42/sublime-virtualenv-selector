@@ -7,14 +7,14 @@
         "id": "package-settings",
         "mnemonic": "V",
         "children": [{
-            "caption": "Virtualenv",
+            "caption": "Virtualenv Selector",
             "children": [
                 {
                     "caption": "Settings",
                     "command": "edit_settings",
                     "args":
                      {
-                         "base_file": "${packages}/Virtualenv/Virtualenv (${platform}).sublime-settings",
+                         "base_file": "${packages}/VirtualenvSelector/Virtualenv Selector (${platform}).sublime-settings",
                          "default": "{\n\t$0\n}\n"
                      }
                 }
