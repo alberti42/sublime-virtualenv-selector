@@ -22,14 +22,32 @@ LSPPluginType = Literal["LSP-pyright","LSP-basedpyright","None"]
 
 # --- Logging functions (BEGIN) ------------------------------------------------------------
 
-# Configure the "Virtualenv" logger directly
-logger = logging.getLogger("VirtualenvSelector")
+# Configure the "VirtualenvSelector" logger directly
+logger = logging.getLogger('VirtualenvSelector')
+logger.setLevel(logging.DEBUG)
 
+# Check if the logger already has handlers to avoid adding duplicates
+if not logger.handlers:
+    # Create a StreamHandler (outputs to console)
+    console_handler = logging.StreamHandler()
+    # Set the handler's level to 0 to accept all messages
+    # We leave to `logger` the control of what has to be to logged
+    console_handler.setLevel(0) 
+
+    # Create a simple log format
+    formatter = logging.Formatter('%(name)s - %(levelname)s - %(message)s')
+    console_handler.setFormatter(formatter)
+
+    # Add the handler to the logger
+    logger.addHandler(console_handler)
+
+# Store the different log levels
 LogLevels = list(logging._nameToLevel.keys())
+
+# Create literals for Basedpyright static type checks
 LogLevelType = Literal["NOTSET", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 # --- Logging functions (END) ---------------------------------------------------------------
-
 
 # --- Loading/unloading the plugin (BEGIN) --------------------------------------------------
 
