@@ -1,6 +1,6 @@
-# Virtualenv Manager for Sublime Text
+# Virtualenv Selector for Sublime Text
 
-This is a plugin for Sublime Text that provides a simple and efficient way to manage Python virtual environments directly from the editor. The plugin allows you to:
+This is a plugin for Sublime Text that provides a simple and efficient way to select Python virtual environments directly from the editor. The plugin allows you to:
 
 - **List available virtual environments**: Automatically detects virtual environments in specified directories.
 - **Activate a virtual environment**: Updates the environment variables and adds the selected virtual environment to the `PATH`.
@@ -57,7 +57,7 @@ This is a plugin for Sublime Text that provides a simple and efficient way to ma
 
 ## Known Issues
 
-- The automatic activation of Pyright using the selected virtual environment does not fully work yet. The LSP-pyright language server is notified, but it may not correctly switch environments.
+- The automatic activation of Pyright and Basedpyright using the selected virtual environment is still under test. It should work just fine when working with Sublime Text projects.
 
 ## Contributing
 
